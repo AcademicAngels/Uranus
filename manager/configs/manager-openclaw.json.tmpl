@@ -1,0 +1,76 @@
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18799,
+    "auth": {
+      "token": "${MANAGER_GATEWAY_KEY}"
+    }
+  },
+
+  "channels": {
+    "matrix": {
+      "enabled": true,
+      "homeserver": "http://127.0.0.1:6167",
+      "accessToken": "${MANAGER_MATRIX_TOKEN}",
+      "dm": {
+        "policy": "allowlist",
+        "allowFrom": [
+          "@${HICLAW_ADMIN_USER}:${HICLAW_MATRIX_DOMAIN}"
+        ]
+      },
+      "groupPolicy": "allowlist",
+      "groupAllowFrom": [
+        "@${HICLAW_ADMIN_USER}:${HICLAW_MATRIX_DOMAIN}"
+      ],
+      "groups": {
+        "*": { "allow": true }
+      }
+    }
+  },
+
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "llm-direct": {
+        "baseUrl": "${LLM_API_URL}",
+        "apiKey": "${HICLAW_LLM_API_KEY}",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "${HICLAW_DEFAULT_MODEL}",
+            "name": "${HICLAW_DEFAULT_MODEL}",
+            "reasoning": false,
+            "contextWindow": 131072,
+            "maxTokens": 32768
+          }
+        ]
+      }
+    }
+  },
+
+  "agents": {
+    "defaults": {
+      "workspace": "~/hiclaw-fs/agents/manager",
+      "model": {
+        "primary": "llm-direct/${HICLAW_DEFAULT_MODEL}"
+      },
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      },
+      "heartbeat": {
+        "every": "15m",
+        "prompt": "Read HEARTBEAT.md. For each worker that has an assigned task but hasn't sent a completion notification, send a message in the worker's room asking for their current status and progress (the human admin is also in the room and can see the inquiry). Check credential expiration status. If worker capacity is insufficient for pending tasks, notify the human administrator with create/reset commands. Reply HEARTBEAT_OK if nothing needs attention."
+      }
+    }
+  },
+
+  "plugins": {
+    "load": {
+      "paths": ["/opt/openclaw/extensions/matrix"]
+    },
+    "entries": {
+      "matrix": { "enabled": true }
+    }
+  }
+}

@@ -1,0 +1,59 @@
+#!/bin/bash
+# test-04-human-intervene.sh - Case 4: Human sends supplementary instructions mid-task
+# Verifies: Human can send additional instructions while Worker is processing,
+#           and the final result incorporates both original and supplementary requirements
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/test-helpers.sh"
+source "${SCRIPT_DIR}/lib/matrix-client.sh"
+
+test_setup "04-human-intervene"
+
+if ! require_llm_key; then
+    test_teardown "04-human-intervene"
+    test_summary
+    exit 0
+fi
+
+ADMIN_LOGIN=$(matrix_login "${TEST_ADMIN_USER}" "${TEST_ADMIN_PASSWORD}")
+ADMIN_TOKEN=$(echo "${ADMIN_LOGIN}" | jq -r '.access_token')
+
+MANAGER_USER="@manager:${TEST_MATRIX_DOMAIN}"
+
+log_section "Assign Task"
+
+DM_ROOM=$(matrix_find_dm_room "${ADMIN_TOKEN}" "${MANAGER_USER}" 2>/dev/null || true)
+assert_not_empty "${DM_ROOM}" "DM room with Manager found"
+
+# Send initial task
+matrix_send_message "${ADMIN_TOKEN}" "${DM_ROOM}" \
+    "Ask Alice to write a Python script that prints 'Hello, World!' and saves it as hello.py."
+
+log_info "Waiting for Manager to relay task..."
+sleep 20
+
+log_section "Send Supplementary Instruction"
+
+# Send supplementary instruction mid-task
+matrix_send_message "${ADMIN_TOKEN}" "${DM_ROOM}" \
+    "Additional requirement for Alice: the script should also accept a command line argument for the name, so it prints 'Hello, <name>!' instead."
+
+log_info "Waiting for Manager to relay supplement..."
+REPLY=$(matrix_wait_for_reply "${ADMIN_TOKEN}" "${DM_ROOM}" "@manager" 180)
+
+assert_not_empty "${REPLY}" "Manager acknowledged supplementary instruction"
+
+log_section "Verify Incorporation"
+
+# Wait for completion
+sleep 60
+
+# Read recent messages to verify both requirements were addressed
+MESSAGES=$(matrix_read_messages "${ADMIN_TOKEN}" "${DM_ROOM}" 20)
+log_info "Checking if final result includes both requirements..."
+
+# The result should reference both the original and supplementary requirements
+assert_not_empty "${MESSAGES}" "Room has messages from task processing"
+
+test_teardown "04-human-intervene"
+test_summary

@@ -1,0 +1,282 @@
+#!/bin/bash
+# run-all-tests.sh - Integration test orchestrator
+# Builds images, starts Manager, runs all test cases, reports results.
+#
+# Usage:
+#   ./tests/run-all-tests.sh                      # Build + run all tests
+#   ./tests/run-all-tests.sh --skip-build          # Use existing images
+#   ./tests/run-all-tests.sh --test-filter "01 02"  # Run specific tests only
+#   ./tests/run-all-tests.sh --use-existing         # Run against already-installed Manager
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ============================================================
+# Configuration
+# ============================================================
+
+SKIP_BUILD=false
+USE_EXISTING=false
+TEST_FILTER=""
+MANAGER_CONTAINER="hiclaw-manager-test"
+HICLAW_VERSION="${HICLAW_VERSION:-latest}"
+
+# Test environment variables
+export TEST_ADMIN_USER="${TEST_ADMIN_USER:-admin}"
+export TEST_ADMIN_PASSWORD="${TEST_ADMIN_PASSWORD:-testpassword123}"
+export TEST_MINIO_USER="${TEST_MINIO_USER:-minioadmin}"
+export TEST_MINIO_PASSWORD="${TEST_MINIO_PASSWORD:-minioadmin123}"
+export TEST_REGISTRATION_TOKEN="${TEST_REGISTRATION_TOKEN:-test-reg-token-$(openssl rand -hex 8)}"
+export TEST_MATRIX_DOMAIN="${TEST_MATRIX_DOMAIN:-matrix-local.hiclaw.io:8080}"
+export TEST_MANAGER_HOST="${TEST_MANAGER_HOST:-127.0.0.1}"
+export HICLAW_LLM_API_KEY="${HICLAW_LLM_API_KEY:-}"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --skip-build) SKIP_BUILD=true; shift ;;
+        --use-existing) USE_EXISTING=true; SKIP_BUILD=true; shift ;;
+        --test-filter) TEST_FILTER="$2"; shift 2 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+
+# When using an existing installation, load credentials from env file
+if [ "${USE_EXISTING}" = true ]; then
+    ENV_FILE="${HICLAW_ENV_FILE:-${PROJECT_ROOT}/hiclaw-manager.env}"
+    if [ -f "${ENV_FILE}" ]; then
+        while IFS='=' read -r key value; do
+            [[ "${key}" =~ ^#.*$ || -z "${key}" ]] && continue
+            key=$(echo "${key}" | xargs)
+            case "${key}" in
+                HICLAW_ADMIN_USER)       export TEST_ADMIN_USER="${value}" ;;
+                HICLAW_ADMIN_PASSWORD)   export TEST_ADMIN_PASSWORD="${value}" ;;
+                HICLAW_MINIO_USER)       export TEST_MINIO_USER="${value}" ;;
+                HICLAW_MINIO_PASSWORD)   export TEST_MINIO_PASSWORD="${value}" ;;
+                HICLAW_REGISTRATION_TOKEN) export TEST_REGISTRATION_TOKEN="${value}" ;;
+                HICLAW_MATRIX_DOMAIN)    export TEST_MATRIX_DOMAIN="${value}" ;;
+                HICLAW_LLM_API_KEY)      [ -z "${HICLAW_LLM_API_KEY}" ] && export HICLAW_LLM_API_KEY="${value}" ;;
+                HICLAW_MANAGER_GATEWAY_KEY) export TEST_MANAGER_GATEWAY_KEY="${value}" ;;
+            esac
+        done < "${ENV_FILE}"
+    fi
+fi
+
+# ============================================================
+# Utilities
+# ============================================================
+
+log() {
+    echo -e "\033[36m[ORCHESTRATOR]\033[0m $1"
+}
+
+error() {
+    echo -e "\033[31m[ORCHESTRATOR ERROR]\033[0m $1" >&2
+}
+
+cleanup() {
+    if [ "${USE_EXISTING}" = true ]; then
+        log "Using existing installation — skipping container cleanup"
+        # Still clean up test worker containers
+        docker ps -a --filter "name=hiclaw-test-worker-" --format '{{.Names}}' | \
+            xargs -r docker rm -f 2>/dev/null || true
+        return
+    fi
+
+    log "Cleaning up..."
+    docker stop "${MANAGER_CONTAINER}" 2>/dev/null || true
+    docker rm "${MANAGER_CONTAINER}" 2>/dev/null || true
+
+    # Cleanup worker containers
+    docker ps -a --filter "name=hiclaw-test-worker-" --format '{{.Names}}' | \
+        xargs -r docker rm -f 2>/dev/null || true
+
+    log "Cleanup complete"
+}
+
+trap cleanup EXIT
+
+# ============================================================
+# Step 1: Build images
+# ============================================================
+
+if [ "${SKIP_BUILD}" = false ]; then
+    log "Building images via Makefile..."
+    make -C "${PROJECT_ROOT}" build VERSION="${HICLAW_VERSION}"
+    log "Images built successfully"
+else
+    log "Skipping image build (--skip-build)"
+fi
+
+# ============================================================
+# Step 2: Start Manager container (skip if --use-existing)
+# ============================================================
+
+if [ "${USE_EXISTING}" = true ]; then
+    log "Using existing Manager installation (--use-existing)"
+    log "  Admin user: ${TEST_ADMIN_USER}"
+    log "  Matrix domain: ${TEST_MATRIX_DOMAIN}"
+    log "  Manager host: ${TEST_MANAGER_HOST}"
+
+    # Verify the Manager is actually running
+    if ! curl -sf "http://${TEST_MANAGER_HOST}:6167/_matrix/client/versions" > /dev/null 2>&1; then
+        error "Manager does not appear to be running at ${TEST_MANAGER_HOST}:6167. Start it with 'make install' first."
+    fi
+    log "Manager is reachable"
+else
+    log "Starting Manager container..."
+
+    # Clean up any existing test container
+    docker stop "${MANAGER_CONTAINER}" 2>/dev/null || true
+    docker rm "${MANAGER_CONTAINER}" 2>/dev/null || true
+
+    MANAGER_GATEWAY_KEY="$(openssl rand -hex 32)"
+
+    # Detect container runtime socket for direct Worker creation
+    CONTAINER_SOCK=""
+    SOCKET_MOUNT_ARGS=""
+    if [ -S "/run/podman/podman.sock" ]; then
+        CONTAINER_SOCK="/run/podman/podman.sock"
+    elif [ -S "/var/run/docker.sock" ]; then
+        CONTAINER_SOCK="/var/run/docker.sock"
+    fi
+
+    if [ -n "${CONTAINER_SOCK}" ]; then
+        log "Container runtime socket found: ${CONTAINER_SOCK} (direct Worker creation enabled)"
+        SOCKET_MOUNT_ARGS="-v ${CONTAINER_SOCK}:/var/run/docker.sock --security-opt label=disable"
+    else
+        log "No container runtime socket found (Worker creation will output commands)"
+    fi
+
+    docker run -d \
+        --name "${MANAGER_CONTAINER}" \
+        ${SOCKET_MOUNT_ARGS} \
+        -e "HICLAW_ADMIN_USER=${TEST_ADMIN_USER}" \
+        -e "HICLAW_ADMIN_PASSWORD=${TEST_ADMIN_PASSWORD}" \
+        -e "HICLAW_MANAGER_PASSWORD=$(openssl rand -hex 32)" \
+        -e "HICLAW_REGISTRATION_TOKEN=${TEST_REGISTRATION_TOKEN}" \
+        -e "HICLAW_MATRIX_DOMAIN=${TEST_MATRIX_DOMAIN}" \
+        -e "HICLAW_LLM_PROVIDER=${HICLAW_LLM_PROVIDER:-qwen}" \
+        -e "HICLAW_DEFAULT_MODEL=${HICLAW_DEFAULT_MODEL:-qwen3.5-plus}" \
+        -e "HICLAW_LLM_API_KEY=${HICLAW_LLM_API_KEY}" \
+        -e "HICLAW_MINIO_USER=${TEST_MINIO_USER}" \
+        -e "HICLAW_MINIO_PASSWORD=${TEST_MINIO_PASSWORD}" \
+        -e "HICLAW_MANAGER_GATEWAY_KEY=${MANAGER_GATEWAY_KEY}" \
+        -e "HICLAW_WORKER_IMAGE=hiclaw/worker-agent:${HICLAW_VERSION}" \
+        -e "HICLAW_GITHUB_TOKEN=${HICLAW_GITHUB_TOKEN:-}" \
+        -p 8080:8080 \
+        -p 8001:8001 \
+        -p 9001:9001 \
+        -p 6167:6167 \
+        -p 8088:8088 \
+        -p 9000:9000 \
+        "hiclaw/manager-agent:${HICLAW_VERSION}"
+
+    # ============================================================
+    # Step 3: Wait for Manager to be healthy
+    # ============================================================
+
+    log "Waiting for Manager to become healthy..."
+    TIMEOUT=300
+    ELAPSED=0
+
+    while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
+        # Check key services
+        MATRIX_OK=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:6167/_matrix/client/versions" 2>/dev/null) || true
+        MINIO_OK=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:9000/minio/health/live" 2>/dev/null) || true
+        CONSOLE_OK=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8001/" 2>/dev/null) || true
+
+        if [ "${MATRIX_OK}" = "200" ] && [ "${MINIO_OK}" = "200" ] && [ "${CONSOLE_OK}" = "200" ]; then
+            log "Manager is healthy (took ${ELAPSED}s)"
+            break
+        fi
+
+        sleep 10
+        ELAPSED=$((ELAPSED + 10))
+        log "Still waiting... (${ELAPSED}s) Matrix=${MATRIX_OK} MinIO=${MINIO_OK} Console=${CONSOLE_OK}"
+    done
+
+    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+        error "Manager did not become healthy within ${TIMEOUT}s"
+        docker logs "${MANAGER_CONTAINER}" --tail 100
+        exit 1
+    fi
+
+    # Additional wait for Manager Agent to complete initialization
+    # Manager needs ~80s after services are up: register users, setup Higress, wait for auth plugin
+    log "Waiting additional 120s for Manager Agent initialization..."
+    sleep 120
+fi
+
+# ============================================================
+# Step 4: Run test cases
+# ============================================================
+
+log "Running integration tests..."
+echo ""
+
+TOTAL_PASS=0
+TOTAL_FAIL=0
+RESULTS=()
+
+# Determine which tests to run
+TESTS=()
+for test_file in "${SCRIPT_DIR}"/test-*.sh; do
+    test_num=$(basename "${test_file}" | grep -o '[0-9]\+')
+    if [ -n "${TEST_FILTER}" ]; then
+        if echo "${TEST_FILTER}" | grep -qw "${test_num}"; then
+            TESTS+=("${test_file}")
+        fi
+    else
+        TESTS+=("${test_file}")
+    fi
+done
+
+for test_file in "${TESTS[@]}"; do
+    test_name=$(basename "${test_file}" .sh)
+    log "Running: ${test_name}"
+
+    if bash "${test_file}"; then
+        RESULTS+=("PASS: ${test_name}")
+        TOTAL_PASS=$((TOTAL_PASS + 1))
+    else
+        RESULTS+=("FAIL: ${test_name}")
+        TOTAL_FAIL=$((TOTAL_FAIL + 1))
+    fi
+
+    echo ""
+done
+
+# ============================================================
+# Step 5: Report results
+# ============================================================
+
+echo ""
+echo "========================================"
+echo "  Integration Test Results"
+echo "========================================"
+echo "  Total:  $((TOTAL_PASS + TOTAL_FAIL))"
+echo -e "  \033[32mPassed: ${TOTAL_PASS}\033[0m"
+echo -e "  \033[31mFailed: ${TOTAL_FAIL}\033[0m"
+echo "========================================"
+echo ""
+
+for result in "${RESULTS[@]}"; do
+    if [[ "${result}" == PASS* ]]; then
+        echo -e "  \033[32m${result}\033[0m"
+    else
+        echo -e "  \033[31m${result}\033[0m"
+    fi
+done
+
+echo ""
+
+if [ "${TOTAL_FAIL}" -gt 0 ]; then
+    error "${TOTAL_FAIL} test(s) failed"
+    exit 1
+fi
+
+log "All tests passed!"
+exit 0

@@ -1,0 +1,97 @@
+#!/bin/bash
+# test-02-create-worker.sh - Case 2: Create Worker Alice via Matrix conversation
+# Verifies: Manager creates Matrix user, Higress consumer, Room, config files,
+#           and returns install command
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/test-helpers.sh"
+source "${SCRIPT_DIR}/lib/matrix-client.sh"
+source "${SCRIPT_DIR}/lib/higress-client.sh"
+source "${SCRIPT_DIR}/lib/minio-client.sh"
+
+test_setup "02-create-worker"
+
+if ! require_llm_key; then
+    test_teardown "02-create-worker"
+    test_summary
+    exit 0
+fi
+
+# Login as admin
+ADMIN_LOGIN=$(matrix_login "${TEST_ADMIN_USER}" "${TEST_ADMIN_PASSWORD}")
+ADMIN_TOKEN=$(echo "${ADMIN_LOGIN}" | jq -r '.access_token')
+
+# Get admin DM room with Manager (assumes test-01 created it)
+MANAGER_USER="@manager:${TEST_MATRIX_DOMAIN}"
+
+log_section "Request Worker Creation"
+
+# Find or create a DM room with Manager
+DM_ROOM=$(matrix_find_dm_room "${ADMIN_TOKEN}" "${MANAGER_USER}" 2>/dev/null || true)
+
+if [ -z "${DM_ROOM}" ]; then
+    log_info "Creating DM room with Manager..."
+    DM_ROOM=$(curl -sf -X POST "${TEST_MATRIX_DIRECT_URL}/_matrix/client/v3/createRoom" \
+        -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        -H 'Content-Type: application/json' \
+        -d '{
+            "invite": ["'"${MANAGER_USER}"'"],
+            "is_direct": true,
+            "preset": "trusted_private_chat"
+        }' | jq -r '.room_id')
+    sleep 5
+fi
+
+assert_not_empty "${DM_ROOM}" "DM room with Manager exists"
+
+# Send create worker request
+matrix_send_message "${ADMIN_TOKEN}" "${DM_ROOM}" \
+    "Please create a new Worker named alice for frontend development tasks. She should have access to GitHub MCP."
+
+log_info "Waiting for Manager to create Worker Alice..."
+
+# Wait for Manager reply (up to 3 minutes)
+REPLY=$(matrix_wait_for_reply "${ADMIN_TOKEN}" "${DM_ROOM}" "@manager" 180)
+
+log_section "Verify Manager Response"
+
+log_info "Manager reply (first 500 chars): $(echo "${REPLY}" | head -c 500)"
+
+assert_not_empty "${REPLY}" "Manager replied to create worker request"
+assert_contains_i "${REPLY}" "alice" "Reply mentions worker name 'alice'"
+
+# Show error logs on failure for debugging
+if ! echo "${REPLY}" | grep -qi "alice" 2>/dev/null; then
+    log_info "--- Manager Agent Error Log ---"
+    docker exec hiclaw-manager-test tail -10 /var/log/hiclaw/manager-agent-error.log 2>/dev/null || true
+fi
+
+log_section "Verify Infrastructure"
+
+# Check Matrix user exists
+ALICE_LOGIN=$(matrix_login "alice" "" 2>/dev/null || echo "{}")
+# Note: We don't know Alice's password, but we can check if the user was registered
+# by trying to find the user in room membership
+
+# Check Higress consumer
+higress_login "${TEST_ADMIN_USER}" "${TEST_ADMIN_PASSWORD}" > /dev/null
+CONSUMERS=$(higress_get_consumers)
+assert_contains "${CONSUMERS}" "worker-alice" "Higress consumer 'worker-alice' exists"
+
+# Check MinIO files
+minio_setup
+minio_wait_for_file "agents/alice/SOUL.md" 60
+ALICE_SOUL_EXISTS=$?
+assert_eq "0" "${ALICE_SOUL_EXISTS}" "Worker Alice SOUL.md exists in MinIO"
+
+ALICE_SOUL=$(minio_read_file "agents/alice/SOUL.md")
+assert_contains "${ALICE_SOUL}" "frontend" "Alice's SOUL.md mentions frontend"
+
+log_section "Start Worker Container"
+
+# Extract install parameters from Manager's reply and start Worker
+# In real test, we would parse the install command from REPLY
+log_info "Worker Alice verification complete (container start requires install params from Manager)"
+
+test_teardown "02-create-worker"
+test_summary

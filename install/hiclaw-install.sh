@@ -1,0 +1,365 @@
+#!/bin/bash
+# hiclaw-install.sh - One-click installation for HiClaw Manager and Worker
+#
+# Usage:
+#   ./hiclaw-install.sh manager                  # Interactive Manager setup
+#   ./hiclaw-install.sh worker --name <name> ...  # Worker installation
+#
+# All interactive prompts can be pre-set via environment variables.
+# Minimal install (only LLM key required):
+#   HICLAW_LLM_API_KEY=sk-xxx ./hiclaw-install.sh manager
+#
+# Environment variables:
+#   HICLAW_LLM_PROVIDER      LLM provider       (default: qwen)
+#   HICLAW_DEFAULT_MODEL      Default model       (default: qwen3.5-plus)
+#   HICLAW_LLM_API_KEY        LLM API key         (required)
+#   HICLAW_ADMIN_USER         Admin username       (default: admin)
+#   HICLAW_ADMIN_PASSWORD     Admin password       (auto-generated if not set)
+#   HICLAW_MATRIX_DOMAIN      Matrix domain        (default: matrix-local.hiclaw.io:8080)
+#   HICLAW_MOUNT_SOCKET       Mount container runtime socket (default: 1)
+#   HICLAW_VERSION            Image tag            (default: latest)
+
+set -e
+
+HICLAW_VERSION="${HICLAW_VERSION:-latest}"
+MANAGER_IMAGE="hiclaw/manager-agent:${HICLAW_VERSION}"
+WORKER_IMAGE="hiclaw/worker-agent:${HICLAW_VERSION}"
+HICLAW_MOUNT_SOCKET="${HICLAW_MOUNT_SOCKET:-1}"
+
+# ============================================================
+# Utility functions
+# ============================================================
+
+log() {
+    echo -e "\033[36m[HiClaw]\033[0m $1"
+}
+
+error() {
+    echo -e "\033[31m[HiClaw ERROR]\033[0m $1" >&2
+    exit 1
+}
+
+# Prompt for a value interactively, but skip if env var is already set.
+# Usage: prompt VAR_NAME "Prompt text" "default" [true=secret]
+prompt() {
+    local var_name="$1"
+    local prompt_text="$2"
+    local default_value="$3"
+    local is_secret="${4:-false}"
+
+    # If the variable is already set in the environment, use it silently
+    local current_value="${!var_name}"
+    if [ -n "${current_value}" ]; then
+        log "  ${var_name} = (pre-set via env)"
+        return
+    fi
+
+    if [ -n "${default_value}" ]; then
+        prompt_text="${prompt_text} [${default_value}]"
+    fi
+
+    if [ "${is_secret}" = "true" ]; then
+        read -s -p "${prompt_text}: " value
+        echo
+    else
+        read -p "${prompt_text}: " value
+    fi
+
+    value="${value:-${default_value}}"
+    if [ -z "${value}" ]; then
+        error "${var_name} is required"
+    fi
+
+    eval "export ${var_name}='${value}'"
+}
+
+# Prompt for an optional value (empty string is acceptable)
+# Skips prompt if variable is already defined in environment (even if empty)
+prompt_optional() {
+    local var_name="$1"
+    local prompt_text="$2"
+    local is_secret="${3:-false}"
+
+    # Check if variable is defined (even if set to empty string)
+    if [ -n "${!var_name+x}" ]; then
+        log "  ${var_name} = (pre-set via env)"
+        return
+    fi
+
+    if [ "${is_secret}" = "true" ]; then
+        read -s -p "${prompt_text}: " value
+        echo
+    else
+        read -p "${prompt_text}: " value
+    fi
+
+    eval "export ${var_name}='${value}'"
+}
+
+generate_key() {
+    openssl rand -hex 32
+}
+
+# Detect container runtime socket on the host
+detect_socket() {
+    if [ -S "/run/podman/podman.sock" ]; then
+        echo "/run/podman/podman.sock"
+    elif [ -S "/var/run/docker.sock" ]; then
+        echo "/var/run/docker.sock"
+    fi
+}
+
+# ============================================================
+# Manager Installation (Interactive)
+# ============================================================
+
+install_manager() {
+    log "=== HiClaw Manager Installation ==="
+    log ""
+
+    # LLM Configuration
+    log "--- LLM Configuration ---"
+    prompt HICLAW_LLM_PROVIDER "LLM Provider (e.g., qwen, openai)" "qwen"
+    prompt HICLAW_DEFAULT_MODEL "Default Model ID" "qwen3.5-plus"
+    prompt HICLAW_LLM_API_KEY "LLM API Key" "" "true"
+
+    log ""
+
+    # Admin Credentials (password auto-generated if not provided)
+    log "--- Admin Credentials ---"
+    prompt HICLAW_ADMIN_USER "Admin Username" "admin"
+    if [ -z "${HICLAW_ADMIN_PASSWORD}" ]; then
+        prompt_optional HICLAW_ADMIN_PASSWORD "Admin Password (leave empty to auto-generate)" "true"
+        if [ -z "${HICLAW_ADMIN_PASSWORD}" ]; then
+            HICLAW_ADMIN_PASSWORD="admin$(openssl rand -hex 6)"
+            log "  Auto-generated admin password"
+        fi
+    else
+        log "  HICLAW_ADMIN_PASSWORD = (pre-set via env)"
+    fi
+
+    log ""
+
+    # Domain Configuration
+    log "--- Domain Configuration (press Enter for defaults) ---"
+    prompt HICLAW_MATRIX_DOMAIN "Matrix Domain" "matrix-local.hiclaw.io:8080"
+    prompt HICLAW_MATRIX_CLIENT_DOMAIN "Element Web Domain" "matrix-client-local.hiclaw.io"
+    prompt HICLAW_AI_GATEWAY_DOMAIN "AI Gateway Domain" "llm-local.hiclaw.io"
+    prompt HICLAW_FS_DOMAIN "File System Domain" "fs-local.hiclaw.io"
+
+    log ""
+
+    # Optional: GitHub PAT
+    log "--- GitHub Integration (optional, press Enter to skip) ---"
+    prompt_optional HICLAW_GITHUB_TOKEN "GitHub Personal Access Token (optional)" "true"
+
+    log ""
+
+    # Generate secrets (only if not already set)
+    log "Generating secrets..."
+    HICLAW_MANAGER_PASSWORD="${HICLAW_MANAGER_PASSWORD:-$(generate_key)}"
+    HICLAW_REGISTRATION_TOKEN="${HICLAW_REGISTRATION_TOKEN:-$(generate_key)}"
+    HICLAW_MINIO_USER="${HICLAW_MINIO_USER:-minioadmin}"
+    HICLAW_MINIO_PASSWORD="${HICLAW_MINIO_PASSWORD:-$(generate_key)}"
+    HICLAW_MANAGER_GATEWAY_KEY="${HICLAW_MANAGER_GATEWAY_KEY:-$(generate_key)}"
+
+    # Write .env file
+    ENV_FILE="${HICLAW_ENV_FILE:-./hiclaw-manager.env}"
+    cat > "${ENV_FILE}" << EOF
+# HiClaw Manager Configuration
+# Generated by hiclaw-install.sh on $(date)
+
+# LLM
+HICLAW_LLM_PROVIDER=${HICLAW_LLM_PROVIDER}
+HICLAW_DEFAULT_MODEL=${HICLAW_DEFAULT_MODEL}
+HICLAW_LLM_API_KEY=${HICLAW_LLM_API_KEY}
+
+# Admin
+HICLAW_ADMIN_USER=${HICLAW_ADMIN_USER}
+HICLAW_ADMIN_PASSWORD=${HICLAW_ADMIN_PASSWORD}
+
+# Matrix
+HICLAW_MATRIX_DOMAIN=${HICLAW_MATRIX_DOMAIN}
+HICLAW_MATRIX_CLIENT_DOMAIN=${HICLAW_MATRIX_CLIENT_DOMAIN}
+
+# Gateway
+HICLAW_AI_GATEWAY_DOMAIN=${HICLAW_AI_GATEWAY_DOMAIN}
+HICLAW_MANAGER_GATEWAY_KEY=${HICLAW_MANAGER_GATEWAY_KEY}
+
+# File System
+HICLAW_FS_DOMAIN=${HICLAW_FS_DOMAIN}
+HICLAW_MINIO_USER=${HICLAW_MINIO_USER}
+HICLAW_MINIO_PASSWORD=${HICLAW_MINIO_PASSWORD}
+
+# Internal
+HICLAW_MANAGER_PASSWORD=${HICLAW_MANAGER_PASSWORD}
+HICLAW_REGISTRATION_TOKEN=${HICLAW_REGISTRATION_TOKEN}
+
+# GitHub (optional)
+HICLAW_GITHUB_TOKEN=${HICLAW_GITHUB_TOKEN:-}
+
+# Worker image (for direct container creation)
+HICLAW_WORKER_IMAGE=hiclaw/worker-agent:${HICLAW_VERSION}
+EOF
+
+    chmod 600 "${ENV_FILE}"
+    log "Configuration saved to ${ENV_FILE}"
+
+    # Detect container runtime socket
+    SOCKET_MOUNT_ARGS=""
+    if [ "${HICLAW_MOUNT_SOCKET}" = "1" ]; then
+        CONTAINER_SOCK=$(detect_socket)
+        if [ -n "${CONTAINER_SOCK}" ]; then
+            log "Container runtime socket: ${CONTAINER_SOCK} (direct Worker creation enabled)"
+            SOCKET_MOUNT_ARGS="-v ${CONTAINER_SOCK}:/var/run/docker.sock --security-opt label=disable"
+        else
+            log "No container runtime socket found (Worker creation will output commands)"
+        fi
+    fi
+
+    # Remove existing container if present
+    if docker ps -a --format '{{.Names}}' | grep -q "^hiclaw-manager$"; then
+        log "Removing existing hiclaw-manager container..."
+        docker stop hiclaw-manager 2>/dev/null || true
+        docker rm hiclaw-manager 2>/dev/null || true
+    fi
+
+    # Run Manager container
+    log "Starting Manager container..."
+    docker run -d \
+        --name hiclaw-manager \
+        --env-file "${ENV_FILE}" \
+        ${SOCKET_MOUNT_ARGS} \
+        -p 8080:8080 \
+        -p 8001:8001 \
+        -p 9001:9001 \
+        -p 6167:6167 \
+        -p 8088:8088 \
+        -p 9000:9000 \
+        -v hiclaw-data:/data \
+        --restart unless-stopped \
+        "${MANAGER_IMAGE}"
+
+    log ""
+    log "=== HiClaw Manager Started! ==="
+    log ""
+    log "Access URLs:"
+    log "  Element Web (IM Client): http://${HICLAW_MATRIX_CLIENT_DOMAIN}:8080"
+    log "  Higress Console:         http://localhost:8001"
+    log "  MinIO Console:           http://localhost:9001"
+    log ""
+    log "Login to Element Web with:"
+    log "  Username: ${HICLAW_ADMIN_USER}"
+    log "  Password: ${HICLAW_ADMIN_PASSWORD}"
+    log ""
+    log "IMPORTANT: Add the following to your /etc/hosts file:"
+    log "  127.0.0.1 ${HICLAW_MATRIX_DOMAIN%%:*} ${HICLAW_MATRIX_CLIENT_DOMAIN} ${HICLAW_AI_GATEWAY_DOMAIN} ${HICLAW_FS_DOMAIN}"
+    log ""
+    log "Configuration file: ${ENV_FILE}"
+    log ""
+    log "Next steps:"
+    log "  make replay TASK=\"Create a Worker named alice for frontend development\"   # Send task to Manager"
+    log "  make test SKIP_BUILD=1 USE_EXISTING=1  # Run tests against this installation"
+}
+
+# ============================================================
+# Worker Installation (One-Click)
+# ============================================================
+
+install_worker() {
+    local WORKER_NAME=""
+    local MATRIX_SERVER=""
+    local GATEWAY=""
+    local FS=""
+    local FS_KEY=""
+    local FS_SECRET=""
+    local RESET=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --name)     WORKER_NAME="$2"; shift 2 ;;
+            --matrix-server) MATRIX_SERVER="$2"; shift 2 ;;
+            --gateway)  GATEWAY="$2"; shift 2 ;;
+            --fs)       FS="$2"; shift 2 ;;
+            --fs-key)   FS_KEY="$2"; shift 2 ;;
+            --fs-secret) FS_SECRET="$2"; shift 2 ;;
+            --reset)    RESET=true; shift ;;
+            *)          error "Unknown option: $1" ;;
+        esac
+    done
+
+    # Validate required params
+    [ -z "${WORKER_NAME}" ] && error "--name is required"
+    [ -z "${MATRIX_SERVER}" ] && error "--matrix-server is required"
+    [ -z "${GATEWAY}" ] && error "--gateway is required"
+    [ -z "${FS}" ] && error "--fs is required"
+    [ -z "${FS_KEY}" ] && error "--fs-key is required"
+    [ -z "${FS_SECRET}" ] && error "--fs-secret is required"
+
+    local CONTAINER_NAME="hiclaw-worker-${WORKER_NAME}"
+
+    # Handle reset
+    if [ "${RESET}" = true ]; then
+        log "Resetting Worker: ${WORKER_NAME}..."
+        docker stop "${CONTAINER_NAME}" 2>/dev/null || true
+        docker rm "${CONTAINER_NAME}" 2>/dev/null || true
+    fi
+
+    # Check for existing container
+    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        error "Container '${CONTAINER_NAME}' already exists. Use --reset to recreate."
+    fi
+
+    log "Starting Worker: ${WORKER_NAME}..."
+    docker run -d \
+        --name "${CONTAINER_NAME}" \
+        -e "HICLAW_WORKER_NAME=${WORKER_NAME}" \
+        -e "HICLAW_MATRIX_SERVER=${MATRIX_SERVER}" \
+        -e "HICLAW_AI_GATEWAY=${GATEWAY}" \
+        -e "HICLAW_FS_ENDPOINT=${FS}" \
+        -e "HICLAW_FS_ACCESS_KEY=${FS_KEY}" \
+        -e "HICLAW_FS_SECRET_KEY=${FS_SECRET}" \
+        --restart unless-stopped \
+        "${WORKER_IMAGE}"
+
+    log ""
+    log "=== Worker ${WORKER_NAME} Started! ==="
+    log "Container: ${CONTAINER_NAME}"
+    log "View logs: docker logs -f ${CONTAINER_NAME}"
+}
+
+# ============================================================
+# Main
+# ============================================================
+
+case "${1:-}" in
+    manager)
+        install_manager
+        ;;
+    worker)
+        shift
+        install_worker "$@"
+        ;;
+    *)
+        echo "Usage: $0 {manager|worker [options]}"
+        echo ""
+        echo "Commands:"
+        echo "  manager              Interactive Manager installation"
+        echo "  worker               Worker installation (requires --name and connection params)"
+        echo ""
+        echo "All manager prompts can be pre-set via environment variables."
+        echo "Minimal install (only LLM key required, everything else uses defaults):"
+        echo "  HICLAW_LLM_API_KEY=sk-xxx $0 manager"
+        echo ""
+        echo "Worker Options:"
+        echo "  --name <name>        Worker name (required)"
+        echo "  --matrix-server <url> Matrix server URL (required)"
+        echo "  --gateway <url>      AI Gateway URL (required)"
+        echo "  --fs <url>           File system URL (required)"
+        echo "  --fs-key <key>       File system access key (required)"
+        echo "  --fs-secret <secret> File system secret key (required)"
+        echo "  --reset              Remove existing Worker container before creating"
+        exit 1
+        ;;
+esac

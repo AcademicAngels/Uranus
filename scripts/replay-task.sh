@@ -1,0 +1,352 @@
+#!/bin/bash
+# replay-task.sh - Send a task message to the Manager Agent via Matrix
+#
+# Acts as the "human admin" by sending a Matrix message to the Manager
+# and optionally waiting for its reply.
+#
+# Usage:
+#   ./scripts/replay-task.sh "Create a Worker named alice"   # CLI mode
+#   ./scripts/replay-task.sh                                  # Interactive mode
+#   echo "Create worker bob" | ./scripts/replay-task.sh       # Pipe mode
+#
+# Environment variables (or loaded from ./hiclaw-manager.env):
+#   HICLAW_ADMIN_USER          Admin username       (default: admin)
+#   HICLAW_ADMIN_PASSWORD      Admin password       (required)
+#   HICLAW_MATRIX_DOMAIN       Matrix domain        (default: matrix-local.hiclaw.io:8080)
+#   REPLAY_MATRIX_HOST         Matrix direct host   (default: 127.0.0.1)
+#   REPLAY_MATRIX_PORT         Matrix direct port   (default: 6167)
+#   REPLAY_WAIT                Wait for reply        (default: 1, set 0 to skip)
+#   REPLAY_TIMEOUT             Reply timeout secs    (default: 300)
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ============================================================
+# Load configuration
+# ============================================================
+
+# Load env file if present (variables already set in env take precedence)
+ENV_FILE="${HICLAW_ENV_FILE:-${PROJECT_ROOT}/hiclaw-manager.env}"
+if [ -f "${ENV_FILE}" ]; then
+    # Source the env file but don't override existing env vars
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        [[ "${key}" =~ ^#.*$ || -z "${key}" ]] && continue
+        # Trim whitespace
+        key=$(echo "${key}" | xargs)
+        # Only set if not already in environment
+        if [ -z "${!key}" ]; then
+            export "${key}=${value}"
+        fi
+    done < "${ENV_FILE}"
+fi
+
+# Configuration with defaults
+ADMIN_USER="${HICLAW_ADMIN_USER:-admin}"
+ADMIN_PASSWORD="${HICLAW_ADMIN_PASSWORD:-}"
+MATRIX_DOMAIN="${HICLAW_MATRIX_DOMAIN:-matrix-local.hiclaw.io:8080}"
+MATRIX_HOST="${REPLAY_MATRIX_HOST:-127.0.0.1}"
+MATRIX_PORT="${REPLAY_MATRIX_PORT:-6167}"
+MATRIX_URL="http://${MATRIX_HOST}:${MATRIX_PORT}"
+WAIT_FOR_REPLY="${REPLAY_WAIT:-1}"
+REPLY_TIMEOUT="${REPLAY_TIMEOUT:-300}"
+MANAGER_USER="manager"
+
+# ============================================================
+# Utility functions
+# ============================================================
+
+log() {
+    echo -e "\033[36m[replay]\033[0m $1"
+}
+
+error() {
+    echo -e "\033[31m[replay ERROR]\033[0m $1" >&2
+    exit 1
+}
+
+# ============================================================
+# Matrix API helpers (self-contained, no dependency on test libs)
+# ============================================================
+
+matrix_api() {
+    local method="$1"
+    local path="$2"
+    local data="$3"
+    local token="$4"
+    local auth_header=""
+
+    if [ -n "${token}" ]; then
+        auth_header="-H \"Authorization: Bearer ${token}\""
+    fi
+
+    if [ -n "${data}" ]; then
+        eval curl -sf -X "${method}" \
+            -H "'Content-Type: application/json'" \
+            ${auth_header} \
+            -d "'${data}'" \
+            "'${MATRIX_URL}${path}'"
+    else
+        eval curl -sf -X "${method}" \
+            ${auth_header} \
+            "'${MATRIX_URL}${path}'"
+    fi
+}
+
+# Login to Matrix, return access_token
+do_login() {
+    local resp
+    resp=$(matrix_api POST "/_matrix/client/v3/login" \
+        "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"${ADMIN_USER}\"},\"password\":\"${ADMIN_PASSWORD}\"}")
+    echo "${resp}" | jq -r '.access_token // empty'
+}
+
+# Get joined rooms
+get_joined_rooms() {
+    local token="$1"
+    matrix_api GET "/_matrix/client/v3/joined_rooms" "" "${token}" | jq -r '.joined_rooms[]'
+}
+
+# Get room members
+get_room_members() {
+    local token="$1"
+    local room_id="$2"
+    matrix_api GET "/_matrix/client/v3/rooms/${room_id}/members" "" "${token}" | jq -r '.chunk[].state_key' 2>/dev/null
+}
+
+# Find DM room with manager
+find_manager_room() {
+    local token="$1"
+    local rooms
+    rooms=$(get_joined_rooms "${token}")
+
+    for room_id in ${rooms}; do
+        local members
+        members=$(get_room_members "${token}" "${room_id}" 2>/dev/null) || continue
+        local member_count
+        member_count=$(echo "${members}" | wc -l | xargs)
+
+        # DM room: exactly 2 members, one is admin, one is manager
+        if [ "${member_count}" = "2" ] && echo "${members}" | grep -q "@${MANAGER_USER}:"; then
+            echo "${room_id}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Create a DM room with the manager and return room_id
+create_dm_room() {
+    local token="$1"
+
+    local manager_full_id="@${MANAGER_USER}:${MATRIX_DOMAIN}"
+    local resp
+    resp=$(matrix_api POST "/_matrix/client/v3/createRoom" \
+        "{\"is_direct\":true,\"invite\":[\"${manager_full_id}\"],\"preset\":\"trusted_private_chat\"}" "${token}")
+
+    echo "${resp}" | jq -r '.room_id // empty' 2>/dev/null
+}
+
+# Send a message to a room
+send_message() {
+    local token="$1"
+    local room_id="$2"
+    local body="$3"
+    local txn_id
+    txn_id="replay_$(date +%s%N)"
+
+    # Escape the body for JSON
+    local json_body
+    json_body=$(printf '%s' "${body}" | jq -Rs .)
+
+    matrix_api PUT "/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${txn_id}" \
+        "{\"msgtype\":\"m.text\",\"body\":${json_body}}" "${token}" > /dev/null
+}
+
+# Read recent messages from a room
+read_messages() {
+    local token="$1"
+    local room_id="$2"
+    local limit="${3:-10}"
+    matrix_api GET "/_matrix/client/v3/rooms/${room_id}/messages?dir=b&limit=${limit}" "" "${token}"
+}
+
+# Wait for a reply from the manager
+# Outputs ONLY the reply body to stdout (for capture).
+# Progress messages go to stderr (visible in terminal but not captured).
+wait_for_manager_reply() {
+    local token="$1"
+    local room_id="$2"
+    local after_event="$3"
+    local timeout="${4:-${REPLY_TIMEOUT}}"
+    local elapsed=0
+
+    # Snapshot the latest event_id from manager before we start waiting
+    local baseline_event
+    baseline_event=$(read_messages "${token}" "${room_id}" 5 2>/dev/null | \
+        jq -r --arg user "@${MANAGER_USER}:" \
+        '[.chunk[] | select(.sender | contains($user)) | .event_id] | first // ""' 2>/dev/null)
+
+    echo -e "\033[36m[replay]\033[0m Waiting for Manager reply (timeout: ${timeout}s)..." >&2
+
+    while [ "${elapsed}" -lt "${timeout}" ]; do
+        sleep 5
+        elapsed=$((elapsed + 5))
+
+        local messages
+        messages=$(read_messages "${token}" "${room_id}" 10 2>/dev/null) || continue
+
+        # Get latest manager message
+        local latest_event latest_body
+        latest_event=$(echo "${messages}" | jq -r --arg user "@${MANAGER_USER}:" \
+            '[.chunk[] | select(.sender | contains($user)) | .event_id] | first // ""' 2>/dev/null)
+        latest_body=$(echo "${messages}" | jq -r --arg user "@${MANAGER_USER}:" \
+            '[.chunk[] | select(.sender | contains($user)) | .content.body] | first // empty' 2>/dev/null)
+
+        # Only return if the event_id differs from baseline (new message)
+        if [ -n "${latest_body}" ] && [ "${latest_event}" != "${baseline_event}" ]; then
+            echo "" >&2
+            echo -e "\033[32m[Manager]\033[0m" >&2
+            echo "${latest_body}" >&2
+            # Output ONLY the clean reply to stdout
+            echo "${latest_body}"
+            return 0
+        fi
+
+        printf "\r\033[36m[replay]\033[0m Waiting... (%ds/%ds)" "${elapsed}" "${timeout}" >&2
+    done
+
+    echo "" >&2
+    echo -e "\033[36m[replay]\033[0m Timeout: no reply from Manager within ${timeout}s" >&2
+    return 1
+}
+
+# ============================================================
+# Main
+# ============================================================
+
+# Validate configuration
+if [ -z "${ADMIN_PASSWORD}" ]; then
+    error "HICLAW_ADMIN_PASSWORD is required. Set it via env var or ensure ./hiclaw-manager.env exists."
+fi
+
+# Get task message from CLI arg, stdin, or interactive prompt
+TASK_MSG=""
+
+if [ $# -gt 0 ]; then
+    # CLI mode
+    TASK_MSG="$*"
+elif [ ! -t 0 ]; then
+    # Pipe mode (stdin is not a terminal)
+    TASK_MSG=$(cat)
+else
+    # Interactive mode
+    echo -e "\033[36m[replay]\033[0m Enter the task message to send to Manager:"
+    echo -e "\033[36m[replay]\033[0m (Press Enter to send, Ctrl+C to cancel)"
+    echo -n "> "
+    read -r TASK_MSG
+fi
+
+if [ -z "${TASK_MSG}" ]; then
+    error "Task message cannot be empty"
+fi
+
+log "Task: ${TASK_MSG}"
+log ""
+
+# ============================================================
+# Conversation log setup
+# ============================================================
+LOG_DIR="${REPLAY_LOG_DIR:-${PROJECT_ROOT}/logs/replay}"
+mkdir -p "${LOG_DIR}"
+LOG_TS=$(date '+%Y%m%d-%H%M%S')
+LOG_FILE="${LOG_DIR}/replay-${LOG_TS}.log"
+
+write_log() {
+    echo "$1" >> "${LOG_FILE}"
+}
+
+write_log "# HiClaw Replay Log"
+write_log "# Time: $(date '+%Y-%m-%d %H:%M:%S')"
+write_log "# Task: ${TASK_MSG}"
+write_log ""
+
+# Step 1: Login
+log "Logging in as '${ADMIN_USER}'..."
+ACCESS_TOKEN=$(do_login)
+if [ -z "${ACCESS_TOKEN}" ]; then
+    error "Login failed. Check HICLAW_ADMIN_USER and HICLAW_ADMIN_PASSWORD."
+fi
+log "Login successful"
+
+# Step 2: Find or create DM room with Manager
+log "Finding DM room with Manager..."
+ROOM_ID=$(find_manager_room "${ACCESS_TOKEN}" 2>/dev/null || true)
+if [ -z "${ROOM_ID}" ]; then
+    log "No existing DM room found, creating one..."
+    ROOM_ID=$(create_dm_room "${ACCESS_TOKEN}")
+    if [ -z "${ROOM_ID}" ]; then
+        error "Failed to create DM room with @${MANAGER_USER}. Is the Manager Agent running?"
+    fi
+    log "Created DM room: ${ROOM_ID}"
+    # Wait briefly for Manager to join/accept the invite
+    sleep 3
+else
+    log "Found existing room: ${ROOM_ID}"
+fi
+
+# Step 3: Send message
+log "Sending task message..."
+send_message "${ACCESS_TOKEN}" "${ROOM_ID}" "${TASK_MSG}"
+log "Message sent"
+
+# Step 4: Wait for reply
+if [ "${WAIT_FOR_REPLY}" = "1" ]; then
+    REPLY=$(wait_for_manager_reply "${ACCESS_TOKEN}" "${ROOM_ID}" "" "${REPLY_TIMEOUT}")
+    REPLY_STATUS=$?
+
+    # ============================================================
+    # Collect room messages into the log file
+    # ============================================================
+    log ""
+    log "--- Collecting room messages ---"
+
+    # Helper: dump messages of a room into the log
+    dump_room_messages() {
+        local token="$1"
+        local rid="$2"
+        local limit="${3:-100}"
+        read_messages "${token}" "${rid}" "${limit}" 2>/dev/null | jq -r '
+            .chunk | reverse | .[] |
+            select(.content.body != null and .content.body != "") |
+            "**[\(.origin_server_ts / 1000 | strftime("%H:%M:%S"))] \(.sender | split(":")[0] | ltrimstr("@"))**\n\n\(.content.body)\n"
+        ' 2>/dev/null
+    }
+
+    # DM Room
+    write_log "## DM (admin <-> manager)"
+    write_log ""
+    dump_room_messages "${ACCESS_TOKEN}" "${ROOM_ID}" 100 >> "${LOG_FILE}"
+
+    # Worker / other rooms that include @manager
+    ALL_ROOMS=$(get_joined_rooms "${ACCESS_TOKEN}" 2>/dev/null)
+    for rid in ${ALL_ROOMS}; do
+        [ "${rid}" = "${ROOM_ID}" ] && continue
+        ROOM_MEMBERS=$(get_room_members "${ACCESS_TOKEN}" "${rid}" 2>/dev/null) || continue
+        echo "${ROOM_MEMBERS}" | grep -q "@${MANAGER_USER}:" || continue
+
+        MEMBER_NAMES=$(echo "${ROOM_MEMBERS}" | sed 's/@//g; s/:.*//g' | tr '\n' ', ' | sed 's/,$//')
+        write_log "---"
+        write_log ""
+        write_log "## Room: ${MEMBER_NAMES}"
+        write_log ""
+        dump_room_messages "${ACCESS_TOKEN}" "${rid}" 100 >> "${LOG_FILE}"
+    done
+
+    log "Conversation log saved to: ${LOG_FILE}"
+else
+    log "Skipping reply wait (REPLAY_WAIT=0)"
+fi

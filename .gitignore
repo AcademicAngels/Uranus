@@ -1,0 +1,13 @@
+# Environment and secrets
+hiclaw-manager.env
+*.env
+
+# Replay logs (contain conversation data, may include secrets)
+logs/
+
+# OS files
+.DS_Store
+
+# Design docs
+design/
+poc-verification/
