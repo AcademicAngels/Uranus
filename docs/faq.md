@@ -208,7 +208,7 @@ OpenClaw limits the "typing" indicator to a maximum of **2 minutes**. If the age
 
 ### 3. Check session status
 
-The OpenClaw session might be stuck. Enter the Manager or Worker container and use the OpenClaw TUI to investigate:
+The OpenClaw session might be corrupted. Enter the Manager or Worker container and use the OpenClaw TUI to investigate:
 
 ```bash
 # Manager
@@ -223,17 +223,32 @@ In the TUI:
 2. Switch to the session for the relevant chat
 3. Try sending a message and observe if there are any errors
 
-If the session is stuck, try `/reset` to reset it and see if that restores normal behavior.
-
-### 4. Check model configuration
-
-The model's context window size might be misconfigured, causing the window to fill up before compression happens. See [How to switch the Manager's model](#how-to-switch-the-managers-model) and [How to switch a Worker's model](#how-to-switch-a-workers-model) for proper configuration.
+If the session is corrupted, try `/reset` to reset it and see if that restores normal behavior.
 
 ---
 
 ## Manager not responding or returning error status codes
 
-If Manager stops responding or you see error codes like 404 or 503, check the Higress AI Gateway log:
+If Manager stops responding or you see error codes like 404 or 503, check these common causes:
+
+### 1. Check session status
+
+The OpenClaw session might be corrupted. Enter the Manager container and use the OpenClaw TUI to investigate:
+
+```bash
+docker exec -it hiclaw-manager openclaw tui
+```
+
+In the TUI:
+1. Type `/sessions` to list all sessions
+2. Switch to the session for the relevant chat
+3. Try sending a message and observe if there are any errors
+
+If the session is corrupted, try `/reset` to reset it and see if that restores normal behavior.
+
+### 2. Check Higress AI Gateway log
+
+If resetting the session doesn't help, check the Higress AI Gateway log:
 
 ```bash
 docker exec -it hiclaw-manager cat /var/log/hiclaw/higress-gateway.log
@@ -245,6 +260,10 @@ Search the log for the relevant status code. Common causes:
 - **404**: The model name is probably wrong.
 
 To determine whether the error came from the backend or from a Higress misconfiguration, check the `upstream_host` field in the log entry. If `upstream_host` has a value, the request reached the backend and the error was returned by the upstream service. If it's empty, Higress itself couldn't route the request.
+
+### 3. Check model configuration
+
+The model's context window size might be misconfigured, causing the window to fill up before compression happens. See [How to switch the Manager's model](#how-to-switch-the-managers-model) and [How to switch a Worker's model](#how-to-switch-a-workers-model) for proper configuration.
 
 ---
 
