@@ -25,4 +25,6 @@ Record image-affecting changes to `manager/`, `worker/`, `openclaw-base/` here b
 - fix(copaw): copy mcporter config from workspace root into COPAW_WORKING_DIR (`.copaw/config/mcporter.json`) so mcporter finds it at default path; auto-update on file-sync pull
 - fix(copaw): add backward-compat fallback in `pull_all` — try `config/mcporter.json` first, fall back to legacy `mcporter-servers.json` path in MinIO
 - feat(manager): add `mcporter` to default Worker skills in `create-worker.sh` so new Workers get mcporter skill automatically
+- feat(manager): `upgrade-builtins.sh` now pushes all `worker-skills/` to every registered Worker on upgrade (auto-registers new skills in registry); use runtime-specific agent source for builtin skills (copaw vs openclaw)
+- feat(manager): add mcporter SKILL.md to `worker-agent/skills/` (OpenClaw builtin) so upgrade-builtins pushes it to all OpenClaw workers; `copaw-worker-agent/skills/mcporter/` already present for CoPaw workers
 

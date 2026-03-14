@@ -157,8 +157,16 @@ if [ -d "${WORKER_AGENT_SRC}" ] && mc alias ls hiclaw > /dev/null 2>&1; then
             [ -z "${_worker_name}" ] && continue
             log "  Syncing builtins to worker: ${_worker_name}"
 
+            # Determine runtime-specific agent source for builtin skills
+            _worker_runtime=$(jq -r --arg w "${_worker_name}" '.workers[$w].runtime // "openclaw"' "${REGISTRY}" 2>/dev/null || echo "openclaw")
+            if [ "${_worker_runtime}" = "copaw" ]; then
+                _worker_agent_src="${AGENT_SRC}/copaw-worker-agent"
+            else
+                _worker_agent_src="${WORKER_AGENT_SRC}"
+            fi
+
             # Push AGENTS.md
-            mc cp "${WORKER_AGENT_SRC}/AGENTS.md" \
+            mc cp "${_worker_agent_src}/AGENTS.md" \
                 "hiclaw/hiclaw-storage/agents/${_worker_name}/AGENTS.md" 2>/dev/null \
                 && log "    Updated AGENTS.md" \
                 || log "    WARNING: Failed to sync AGENTS.md"
@@ -171,9 +179,9 @@ if [ -d "${WORKER_AGENT_SRC}" ] && mc alias ls hiclaw > /dev/null 2>&1; then
                     || log "    WARNING: Failed to sync TOOLS.md"
             fi
 
-            # Push all builtin skills from worker-agent/skills/ (these are default for all workers)
-            if [ -d "${WORKER_AGENT_SRC}/skills" ]; then
-                for _skill_dir in "${WORKER_AGENT_SRC}/skills"/*/; do
+            # Push all builtin skills from runtime-specific agent dir
+            if [ -d "${_worker_agent_src}/skills" ]; then
+                for _skill_dir in "${_worker_agent_src}/skills"/*/; do
                     [ ! -d "${_skill_dir}" ] && continue
                     _skill_name=$(basename "${_skill_dir}")
                     mc mirror "${_skill_dir}" \
@@ -183,7 +191,7 @@ if [ -d "${WORKER_AGENT_SRC}" ] && mc alias ls hiclaw > /dev/null 2>&1; then
                 done
             fi
 
-            # Push all worker-skills that the worker has assigned
+            # Push assigned worker-skills (on-demand skills from registry)
             for _skill_name in $(jq -r --arg w "${_worker_name}" \
                 '.workers[$w].skills // [] | .[]' "${REGISTRY}" 2>/dev/null); do
                 [ -z "${_skill_name}" ] && continue
@@ -192,8 +200,8 @@ if [ -d "${WORKER_AGENT_SRC}" ] && mc alias ls hiclaw > /dev/null 2>&1; then
                 if [ -d "${_skill_src}" ]; then
                     mc mirror "${_skill_src}/" \
                         "hiclaw/hiclaw-storage/agents/${_worker_name}/skills/${_skill_name}/" --overwrite 2>/dev/null \
-                        && log "    Updated skill: ${_skill_name}" \
-                        || log "    WARNING: Failed to sync skill ${_skill_name}"
+                        && log "    Updated assigned skill: ${_skill_name}" \
+                        || log "    WARNING: Failed to sync assigned skill ${_skill_name}"
                 fi
             done
         done
