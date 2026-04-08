@@ -705,11 +705,7 @@ spec:
     allowedUsers:                        # 允许与 DebugWorker 对话的用户
       - admin
 status:
-  phase: Running                         # Pending/Running/Stopped/Failed
-  matrixUserID: "@debug-alpha-team:domain"
-  roomID: "!debug-room:domain"
-  containerState: running
-  lastHeartbeat: "2026-04-08T10:00:00Z"
+  phase: Running                         # Pending/Running/Failed
 ```
 
 DebugWorker 的生命周期跟着资源走：创建 CRD 时启动容器，删除 CRD 时清理容器和 Matrix 账号。无需 retention 自动清理机制。
@@ -739,11 +735,7 @@ type DebugAccessControl struct {
 }
 
 type DebugWorkerStatus struct {
-    Phase          string `json:"phase,omitempty"`          // Pending/Running/Stopped/Failed
-    MatrixUserID   string `json:"matrixUserID,omitempty"`
-    RoomID         string `json:"roomID,omitempty"`
-    ContainerState string `json:"containerState,omitempty"`
-    LastHeartbeat  string `json:"lastHeartbeat,omitempty"`
+    Phase string `json:"phase,omitempty"` // Pending/Running/Failed
 }
 ```
 
