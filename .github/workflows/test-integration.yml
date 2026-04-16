@@ -68,16 +68,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Free Up Disk Space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -111,16 +101,6 @@ jobs:
       matrix:
         target: [embedded, manager, manager-copaw, worker, copaw-worker]
     steps:
-      - name: Free Up Disk Space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -194,16 +174,6 @@ jobs:
             runtime: copaw
 
     steps:
-      - name: Free Up Disk Space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-
       - name: Checkout code
         uses: actions/checkout@v4
         with:
