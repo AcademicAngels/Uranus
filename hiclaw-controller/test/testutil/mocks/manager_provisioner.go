@@ -23,6 +23,7 @@ type MockManagerProvisioner struct {
 	RequestManagerSATokenFn       func(ctx context.Context, managerName string) (string, error)
 	LeaveAllManagerRoomsFn        func(ctx context.Context, managerName string) error
 	DeleteManagerRoomFn           func(ctx context.Context, roomID string) error
+	DeleteManagerRoomAliasFn      func(ctx context.Context, managerName string) error
 
 	Calls struct {
 		ProvisionManager            []service.ManagerProvisionRequest
@@ -37,6 +38,7 @@ type MockManagerProvisioner struct {
 		RequestManagerSAToken       []string
 		LeaveAllManagerRooms        []string
 		DeleteManagerRoom           []string
+		DeleteManagerRoomAlias      []string
 	}
 }
 
@@ -60,6 +62,7 @@ func (m *MockManagerProvisioner) Reset() {
 	m.RequestManagerSATokenFn = nil
 	m.LeaveAllManagerRoomsFn = nil
 	m.DeleteManagerRoomFn = nil
+	m.DeleteManagerRoomAliasFn = nil
 }
 
 func (m *MockManagerProvisioner) ClearCalls() {
@@ -82,6 +85,7 @@ func (m *MockManagerProvisioner) clearCallsLocked() {
 		RequestManagerSAToken       []string
 		LeaveAllManagerRooms        []string
 		DeleteManagerRoom           []string
+		DeleteManagerRoomAlias      []string
 	}{}
 }
 
@@ -230,6 +234,17 @@ func (m *MockManagerProvisioner) DeleteManagerRoom(ctx context.Context, roomID s
 	m.mu.Unlock()
 	if fn != nil {
 		return fn(ctx, roomID)
+	}
+	return nil
+}
+
+func (m *MockManagerProvisioner) DeleteManagerRoomAlias(ctx context.Context, managerName string) error {
+	m.mu.Lock()
+	m.Calls.DeleteManagerRoomAlias = append(m.Calls.DeleteManagerRoomAlias, managerName)
+	fn := m.DeleteManagerRoomAliasFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, managerName)
 	}
 	return nil
 }
