@@ -1,0 +1,39 @@
+# MCP Server template for mcpvault — Obsidian vault read/write via
+# filesystem.  mcpvault must be running as a sidecar or standalone
+# process pointing at the shared vault directory.
+#
+# Usage:
+#   bash scripts/setup-mcp-proxy.sh obsidian-vault http://localhost:3200/mcp sse
+#
+# mcpvault does not use credential substitution — it reads files
+# directly from disk.  The proxy setup script handles Gateway routing
+# and Worker authorization.
+#
+# Start mcpvault (example):
+#   npx mcpvault --vault ~/hiclaw-fs/shared/vault --port 3200
+
+server:
+  name: obsidian-vault
+  config: {}
+
+tools:
+  - name: search_notes
+    description: "Full-text search across all markdown notes in the vault"
+
+  - name: read_note
+    description: "Read the full content of a specific note by path"
+
+  - name: list_notes
+    description: "List all notes, optionally filtered by directory"
+
+  - name: list_by_tag
+    description: "List notes that contain a specific tag"
+
+  - name: get_backlinks
+    description: "Find all notes that link to a given note via [[wikilinks]]"
+
+  - name: create_note
+    description: "Create a new markdown note at the specified path"
+
+  - name: append_note
+    description: "Append content to an existing note"
