@@ -61,3 +61,25 @@ receive access via their `mcporter.json` config on next sync cycle.
 ```bash
 mcporter call obsidian-vault search_notes '{"query": "test"}'
 ```
+
+## Production: Local Embedding on GPU (Phase 3)
+
+For environments with a GPU (e.g., NVIDIA 4070Ti), run embeddings locally
+instead of calling a remote API:
+
+1. Serve an embedding model via Ollama:
+   ```bash
+   ollama pull bge-m3
+   ollama serve
+   ```
+
+2. Configure HiClaw to use the local model:
+   ```bash
+   export HICLAW_EMBEDDING_MODEL=bge-m3
+   export HICLAW_AI_GATEWAY_URL=http://localhost:11434
+   ```
+
+3. Restart the controller — all agents will use local embeddings on next
+   config refresh.
+
+Expected VRAM usage: ~1-2 GB for bge-m3.

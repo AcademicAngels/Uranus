@@ -50,5 +50,9 @@ HICLAW_EMBEDDING_MODEL="${HICLAW_EMBEDDING_MODEL-text-embedding-v4}"
 
 HICLAW_VAULT_PATH="${HICLAW_VAULT_PATH-shared/vault}"
 export HICLAW_VAULT_PATH
+# Local embedding model override for GPU environments (e.g., 4070Ti).
+# Set HICLAW_EMBEDDING_MODEL to a local model served via Ollama or vLLM:
+#   export HICLAW_EMBEDDING_MODEL=bge-m3
+# The model must be accessible via the AI Gateway at HICLAW_AI_GATEWAY_URL.
 
 export HICLAW_RUNTIME HICLAW_MATRIX_URL HICLAW_AI_GATEWAY_URL HICLAW_FS_BUCKET HICLAW_STORAGE_PREFIX HICLAW_EMBEDDING_MODEL
