@@ -45,6 +45,7 @@
 #   HICLAW_PORT_ELEMENT_WEB   Host port for Element Web direct access (default: 18088)
 #   HICLAW_PORT_MANAGER_CONSOLE  Host port for Manager console (default: 18888)
 #   HICLAW_WORKER_IDLE_TIMEOUT  Worker idle timeout in minutes (default: 720, i.e. 12 hours)
+#   HICLAW_VAULT_PATH         Shared vault path in MinIO (default: shared/vault)
 
 set -e
 
@@ -1674,6 +1675,7 @@ step_llm() {
         log "$(msg llm.model.default "${HICLAW_DEFAULT_MODEL}")"
         prompt HICLAW_LLM_API_KEY "$(msg llm.apikey_prompt)" "" "true"
         HICLAW_EMBEDDING_MODEL="${HICLAW_EMBEDDING_MODEL-text-embedding-v4}"
+        HICLAW_VAULT_PATH="${HICLAW_VAULT_PATH-shared/vault}"
         return 0
     fi
     echo ""
@@ -2332,6 +2334,9 @@ HICLAW_MODEL_VISION=${HICLAW_MODEL_VISION:-}
 # Embedding model (empty = disabled, default: text-embedding-v4)
 HICLAW_EMBEDDING_MODEL=${HICLAW_EMBEDDING_MODEL}
 
+# Shared vault path (default: shared/vault)
+HICLAW_VAULT_PATH=${HICLAW_VAULT_PATH:-shared/vault}
+
 # Admin
 HICLAW_ADMIN_USER=${HICLAW_ADMIN_USER}
 HICLAW_ADMIN_PASSWORD=${HICLAW_ADMIN_PASSWORD}
@@ -2747,6 +2752,11 @@ CREDEOF
         # Optional: embedding model
         if [ -n "${HICLAW_EMBEDDING_MODEL:-}" ]; then
             _ctrl_env_args+=(-e "HICLAW_EMBEDDING_MODEL=${HICLAW_EMBEDDING_MODEL}")
+        fi
+
+        # Optional: shared vault path
+        if [ -n "${HICLAW_VAULT_PATH:-}" ]; then
+            _ctrl_env_args+=(-e "HICLAW_VAULT_PATH=${HICLAW_VAULT_PATH}")
         fi
 
         # Optional: OpenAI-compatible base URL
