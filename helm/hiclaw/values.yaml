@@ -189,6 +189,12 @@ controller:
     annotations: {}
   env: {}
   timezone: "Asia/Shanghai"
+  # ── Shared Memory System ──────────────────────────────────────────────────
+  # Obsidian vault path in MinIO for shared agent knowledge.
+  # Set embeddingModel to "" to disable semantic memory search.
+  memory:
+    vaultPath: "shared/vault"
+    embeddingModel: "text-embedding-v4"
 
 # ── Manager Agent (CRD-driven) ────────────────────────────────────────────
 # When enabled, the controller creates a Manager CR at startup. The

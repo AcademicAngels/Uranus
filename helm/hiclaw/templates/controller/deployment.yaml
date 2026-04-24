@@ -166,6 +166,16 @@ spec:
               value: "true"
             {{- end }}
             {{- end }}
+            {{- if .Values.controller.memory }}
+            {{- with .Values.controller.memory.vaultPath }}
+            - name: HICLAW_VAULT_PATH
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.memory.embeddingModel }}
+            - name: HICLAW_EMBEDDING_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             {{- range $k, $v := .Values.controller.env }}
             {{- if $v }}
             - name: {{ $k }}
