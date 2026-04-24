@@ -61,7 +61,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN npm config set registry ${NPM_REGISTRY} && \
-    npm install -g mcporter skills @nacos-group/cli && \
+    npm install -g mcporter skills @nacos-group/cli mcpvault && \
     rm -rf /root/.npm
 
 # Stage copaw-worker dependency metadata only (src/ copied later for layer caching).
