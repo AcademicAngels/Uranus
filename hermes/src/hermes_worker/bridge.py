@@ -499,6 +499,28 @@ def bridge_openclaw_to_hermes(
 
     # Sensible Worker defaults — only set if the user did not configure them.
     existing_yaml.setdefault("memory", {}).setdefault("memory_enabled", True)
+
+    # Bridge embedding/memory-search config from openclaw.json
+    memory_search = (
+        openclaw_cfg.get("agents", {})
+        .get("defaults", {})
+        .get("memorySearch", {})
+    )
+    if memory_search:
+        in_container = _is_in_container()
+        remote = memory_search.get("remote", {})
+        base_url = _port_remap(remote.get("baseUrl", ""), in_container)
+        model = memory_search.get("model", "")
+        if base_url and model:
+            mem_block = existing_yaml.setdefault("memory", {})
+            mem_block["memory_enabled"] = True
+            mem_block["embedding_model"] = model
+            mem_block["embedding_base_url"] = base_url
+            mem_block["embedding_api_key"] = remote.get("apiKey", "")
+            vault_path = memory_search.get("vaultPath", "")
+            if vault_path:
+                mem_block["vault_path"] = vault_path
+
     existing_yaml.setdefault("group_sessions_per_user", True)
 
     # The hermes terminal sandbox defaults to ``local`` which is what we want
