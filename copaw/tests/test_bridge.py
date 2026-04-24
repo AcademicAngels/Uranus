@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 
+import copaw_worker.bridge as bridge_module
 from copaw_worker.bridge import bridge_controller_to_copaw
 
 
@@ -261,6 +262,23 @@ def test_embedding_config_custom_dimensions():
     cfg = _make_openclaw_cfg(outputDimensionality=768)
     agent = _bridge_and_read_agent(cfg)
     assert agent["running"]["embedding_config"]["dimensions"] == 768
+
+
+def test_embedding_config_includes_vault_path(monkeypatch):
+    monkeypatch.setattr(bridge_module, "_is_in_container", lambda: True)
+    cfg = _make_openclaw_cfg()
+    cfg["agents"]["defaults"]["memorySearch"]["vaultPath"] = "shared/vault"
+    agent = _bridge_and_read_agent(cfg)
+    emb = agent["running"]["embedding_config"]
+    assert emb["vault_path"] == "shared/vault"
+
+
+def test_embedding_config_omits_vault_path_when_absent(monkeypatch):
+    monkeypatch.setattr(bridge_module, "_is_in_container", lambda: True)
+    cfg = _make_openclaw_cfg()
+    agent = _bridge_and_read_agent(cfg)
+    emb = agent["running"]["embedding_config"]
+    assert "vault_path" not in emb
 
 
 # ---------------------------------------------------------------------------

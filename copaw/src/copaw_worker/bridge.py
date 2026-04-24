@@ -297,7 +297,7 @@ def _resolve_embedding_config(
         or 1024
     )
 
-    return {
+    result = {
         "backend": "openai",
         "api_key": api_key,
         "base_url": base_url,
@@ -306,6 +306,12 @@ def _resolve_embedding_config(
         "enable_cache": True,
         "use_dimensions": False,
     }
+
+    vault_path = memory_search.get("vaultPath", "")
+    if vault_path:
+        result["vault_path"] = vault_path
+
+    return result
 
 
 def _resolve_history_limit(cfg: dict[str, Any]) -> int | None:
