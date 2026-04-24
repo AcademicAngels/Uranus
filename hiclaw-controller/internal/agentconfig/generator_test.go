@@ -187,6 +187,37 @@ func TestGenerateOpenClawConfig_WithEmbedding(t *testing.T) {
 	}
 }
 
+func TestGenerateOpenClawConfig_WithVaultPath(t *testing.T) {
+	g := NewGenerator(Config{
+		MatrixDomain:   "hiclaw.io",
+		AIGatewayURL:   "http://aigw:8080",
+		EmbeddingModel: "text-embedding-v4",
+		VaultPath:      "shared/vault",
+	})
+
+	data, err := g.GenerateOpenClawConfig(WorkerConfigRequest{
+		WorkerName: "alice",
+		GatewayKey: "key123",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	agents := config["agents"].(map[string]interface{})
+	defaults := agents["defaults"].(map[string]interface{})
+	ms := defaults["memorySearch"].(map[string]interface{})
+
+	vaultPath, ok := ms["vaultPath"].(string)
+	if !ok || vaultPath != "shared/vault" {
+		t.Errorf("vaultPath = %q, want %q", vaultPath, "shared/vault")
+	}
+}
+
 func TestMergeBuiltinSection_NewFile(t *testing.T) {
 	source := "# Worker Agent\n\nYou are a worker.\n"
 	result := MergeBuiltinSection("", source)

@@ -127,6 +127,7 @@ type Config struct {
 	// AI model
 	DefaultModel       string
 	EmbeddingModel     string
+	VaultPath          string
 	Runtime            string
 	ModelContextWindow int
 	ModelMaxTokens     int
@@ -291,6 +292,7 @@ func LoadConfig() *Config {
 
 		DefaultModel:       envOrDefault("HICLAW_DEFAULT_MODEL", "qwen3.5-plus"),
 		EmbeddingModel:     os.Getenv("HICLAW_EMBEDDING_MODEL"),
+		VaultPath:          os.Getenv("HICLAW_VAULT_PATH"),
 		Runtime:            envOrDefault("HICLAW_RUNTIME", "docker"),
 		ModelContextWindow: envOrDefaultInt("HICLAW_MODEL_CONTEXT_WINDOW", 0),
 		ModelMaxTokens:     envOrDefaultInt("HICLAW_MODEL_MAX_TOKENS", 0),
@@ -641,6 +643,7 @@ func (c *Config) AgentConfig() agentconfig.Config {
 		AdminUser:          c.MatrixAdminUser,
 		DefaultModel:       c.DefaultModel,
 		EmbeddingModel:     c.EmbeddingModel,
+		VaultPath:          c.VaultPath,
 		Runtime:            c.Runtime,
 		E2EEEnabled:        c.MatrixE2EE,
 		ModelContextWindow: c.ModelContextWindow,

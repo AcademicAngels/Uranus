@@ -184,7 +184,7 @@ func (g *Generator) GenerateOpenClawConfig(req WorkerConfigRequest) ([]byte, err
 	if g.config.EmbeddingModel != "" {
 		agents := config["agents"].(map[string]interface{})
 		defaults := agents["defaults"].(map[string]interface{})
-		defaults["memorySearch"] = map[string]interface{}{
+		ms := map[string]interface{}{
 			"provider": "openai",
 			"model":    g.config.EmbeddingModel,
 			"remote": map[string]interface{}{
@@ -192,6 +192,10 @@ func (g *Generator) GenerateOpenClawConfig(req WorkerConfigRequest) ([]byte, err
 				"apiKey":  req.GatewayKey,
 			},
 		}
+		if g.config.VaultPath != "" {
+			ms["vaultPath"] = g.config.VaultPath
+		}
+		defaults["memorySearch"] = ms
 	}
 
 	// Apply channel policy overrides

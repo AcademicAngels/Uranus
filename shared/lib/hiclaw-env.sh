@@ -48,4 +48,7 @@ source /opt/hiclaw/scripts/lib/oss-credentials.sh 2>/dev/null || true
 # Use - (not :-) so HICLAW_EMBEDDING_MODEL="" in env file means "disabled" instead of falling back to default.
 HICLAW_EMBEDDING_MODEL="${HICLAW_EMBEDDING_MODEL-text-embedding-v4}"
 
+HICLAW_VAULT_PATH="${HICLAW_VAULT_PATH-shared/vault}"
+export HICLAW_VAULT_PATH
+
 export HICLAW_RUNTIME HICLAW_MATRIX_URL HICLAW_AI_GATEWAY_URL HICLAW_FS_BUCKET HICLAW_STORAGE_PREFIX HICLAW_EMBEDDING_MODEL

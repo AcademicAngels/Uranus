@@ -8,6 +8,7 @@ type Config struct {
 	AdminUser        string // admin username
 	DefaultModel     string // default model name
 	EmbeddingModel   string // embedding model for memory search (optional)
+	VaultPath        string // path to shared Obsidian vault for memorySearch (optional)
 	Runtime          string // "docker", "k8s", "aliyun"
 	E2EEEnabled      bool   // enable Matrix E2EE
 
