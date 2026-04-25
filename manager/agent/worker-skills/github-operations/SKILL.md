@@ -394,11 +394,50 @@ mcporter \
 
 ---
 
+## CI/CD Operations
+
+Check CI status and manage GitHub Actions workflows via MCP tools.
+
+### Check CI Status After Pushing Code
+
+```
+mcporter call mcp-github list_check_runs owner=MyOrg repo=my-project ref=feature/my-branch
+```
+
+### View Recent Workflow Runs
+
+```
+mcporter call mcp-github list_workflow_runs owner=MyOrg repo=my-project branch=main status=completed per_page=5
+```
+
+### Get Details of a Failed Run
+
+```
+mcporter call mcp-github get_workflow_run owner=MyOrg repo=my-project run_id=12345678
+```
+
+### Trigger a Workflow Manually
+
+```
+mcporter call mcp-github trigger_workflow_dispatch owner=MyOrg repo=my-project workflow_id=build.yml ref=main
+```
+
+### Typical CI/CD Agent Workflow
+
+1. **Push code** → Use `git-delegation` skill
+2. **Check CI status** → `list_check_runs` for the commit SHA
+3. **CI failed?** → `get_workflow_run` to read failure details
+4. **Fix the issue** → Edit code, commit, push again
+5. **CI passed?** → Proceed to create/merge PR
+
+---
+
 ## Typical Workflow
 
 1. **Clone & modify** → Use `git-delegation` skill
 2. **Push changes** → Use `git-delegation` skill
-3. **Create PR** → Use `create_pull_request` (this skill)
-4. **Review PR** → Use `add_issue_comment`, `create_pull_request_review_comment` (this skill)
-5. **Merge PR** → Use `merge_pull_request` (this skill)
+3. **Check CI** → Use `list_check_runs` to verify CI passes (this skill)
+4. **Create PR** → Use `create_pull_request` (this skill)
+5. **Review PR** → Use `add_issue_comment`, `create_pull_request_review_comment` (this skill)
+6. **Merge PR** → Use `merge_pull_request` (this skill)
 
