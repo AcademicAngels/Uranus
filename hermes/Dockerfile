@@ -76,7 +76,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN npm config set registry ${NPM_REGISTRY} && \
-    npm install -g mcporter skills @nacos-group/cli mcpvault && \
+    npm install -g mcporter skills @nacos-group/cli mcpvault hermes-web-ui && \
     rm -rf /root/.npm
 
 # --- Heavy install layer (cached unless HERMES_GIT_REF or hermes-worker
