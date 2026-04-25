@@ -27,7 +27,7 @@ set -euo pipefail
 DOCKER_NS="${DOCKER_NS:-tingchaopavilion}"
 VERSION="${VERSION:-dev-$(git rev-parse --short HEAD)}"
 HIGRESS_REGISTRY="${HIGRESS_REGISTRY:-higress-registry.cn-hangzhou.cr.aliyuncs.com}"
-NODE_IMAGE="${NODE_IMAGE:-node:23-slim}"
+NODE_IMAGE="${NODE_IMAGE:-${HIGRESS_REGISTRY}/higress/node:23-slim}"
 DOCKER_BUILD_ARGS="${DOCKER_BUILD_ARGS:-}"
 export DOCKER_BUILDKIT=1
 
