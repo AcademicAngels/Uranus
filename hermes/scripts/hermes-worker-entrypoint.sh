@@ -142,6 +142,42 @@ if [ "${CMS_TRACES_ENABLED}" = "true" ]; then
     log "OTel exporter configured (endpoint=${HICLAW_CMS_ENDPOINT})"
 fi
 
+# ── Hermes Web UI: auth.json for Higress Gateway ──────────────────────────
+# hermes-web-ui uses auth.json to discover LLM providers.  Seed a single
+# "hiclaw-gateway" provider that routes through Higress so the Web UI's model
+# selector and usage analytics work out of the box.  The file is never
+# overwritten if the user has edited it.
+AUTH_JSON="${HERMES_HOME}/auth.json"
+if [ ! -f "${AUTH_JSON}" ]; then
+    _gw_url="${HICLAW_AI_GATEWAY_URL:-http://aigw-local.hiclaw.io:8080}/v1"
+    _gw_key="${HICLAW_WORKER_API_KEY:-${HICLAW_AUTH_TOKEN:-}}"
+    cat > "${AUTH_JSON}" <<AUTHJSON
+{
+  "providers": {
+    "hiclaw-gateway": {
+      "url": "${_gw_url}",
+      "key": "${_gw_key}"
+    }
+  },
+  "default": "hiclaw-gateway"
+}
+AUTHJSON
+    log "auth.json initialized for Higress Gateway (${_gw_url})"
+fi
+
+# ── Hermes Web UI: start as background sidecar ────────────────────────────
+# Auth is disabled because the container is already behind Higress Gateway
+# key-auth.  The UPSTREAM points at the local hermes-agent gateway.
+if command -v hermes-web-ui >/dev/null 2>&1; then
+    WEBUI_PORT="${HICLAW_WEBUI_PORT:-6060}"
+    AUTH_DISABLED=true \
+    UPSTREAM="http://127.0.0.1:8642" \
+    HERMES_BIN="${VENV}/bin/hermes" \
+    PORT="${WEBUI_PORT}" \
+    hermes-web-ui start --port "${WEBUI_PORT}" &
+    log "hermes-web-ui started on port ${WEBUI_PORT} (auth disabled, upstream=localhost:8642)"
+fi
+
 CMD_ARGS=(
     --name "${WORKER_NAME}"
     --fs "${FS_ENDPOINT}"
