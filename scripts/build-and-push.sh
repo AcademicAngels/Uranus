@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # ── Configuration ────────────────────────────────────────────────────────
-DOCKER_NS="${DOCKER_NS:-kiel}"
+DOCKER_NS="${DOCKER_NS:-tingchaopavilion}"
 VERSION="${VERSION:-dev-$(git rev-parse --short HEAD)}"
 export DOCKER_BUILDKIT=1
 
