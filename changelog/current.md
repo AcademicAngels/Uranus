@@ -4,3 +4,4 @@ Record image-affecting changes to `manager/`, `worker/`, `openclaw-base/` here b
 
 ---
 
+- fix(hermes): let web UI build stage use configurable Node image and mirror build args

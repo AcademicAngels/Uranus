@@ -14,6 +14,7 @@
 #   APT_MIRROR              - Debian mirror (default: empty / official)
 #   PIP_INDEX_URL           - PyPI mirror (default: official PyPI)
 #   NPM_REGISTRY            - npm registry (default: official)
+#   NODE_IMAGE              - Node image used to prebuild hermes-web-ui
 #   HERMES_GIT_REF          - git ref of hermes-agent to install
 #                             (default: v2026.4.16, which is the
 #                             "Hermes Agent v0.10.0" release)
@@ -34,10 +35,18 @@ FROM ${HICLAW_CONTROLLER_IMAGE} AS hiclaw-controller
 # hermes-web-ui requires Node >=23 and node-pty (native addon).
 # Build in a dedicated stage, copy the compiled artifact to final image.
 FROM ${NODE_IMAGE} AS webui-builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG APT_MIRROR=
+ARG NPM_REGISTRY=https://registry.npmjs.org/
+RUN if [ -n "${APT_MIRROR}" ]; then \
+        sed -i "s|deb.debian.org|${APT_MIRROR}|g" \
+            /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
+    fi && \
+    apt-get update && apt-get install -y --no-install-recommends \
         make g++ python3 \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install -g hermes-web-ui && rm -rf /root/.npm
+RUN npm config set registry ${NPM_REGISTRY} && \
+    npm install -g hermes-web-ui && \
+    rm -rf /root/.npm
 
 # ============ Final Image ============
 FROM ${HIGRESS_REGISTRY}/higress/python:3.11-slim

@@ -12,19 +12,35 @@
 # Usage:
 #   cd /path/to/Uranus
 #   bash scripts/build-and-push.sh
+#
+# China/proxy build examples:
+#   DOCKER_BUILD_ARGS="--build-arg APT_MIRROR=mirrors.aliyun.com --build-arg NPM_REGISTRY=https://registry.npmmirror.com/" \
+#   NODE_IMAGE=higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/node:23-slim \
+#   bash scripts/build-and-push.sh
+#
+#   DOCKER_BUILD_ARGS="--build-arg HTTP_PROXY=http://host.docker.internal:1087 --build-arg HTTPS_PROXY=http://host.docker.internal:1087" \
+#   bash scripts/build-and-push.sh
 
 set -euo pipefail
 
 # ── Configuration ────────────────────────────────────────────────────────
 DOCKER_NS="${DOCKER_NS:-tingchaopavilion}"
 VERSION="${VERSION:-dev-$(git rev-parse --short HEAD)}"
+HIGRESS_REGISTRY="${HIGRESS_REGISTRY:-higress-registry.cn-hangzhou.cr.aliyuncs.com}"
+NODE_IMAGE="${NODE_IMAGE:-node:23-slim}"
+DOCKER_BUILD_ARGS="${DOCKER_BUILD_ARGS:-}"
 export DOCKER_BUILDKIT=1
 
 echo "============================================"
 echo "  Uranus Build & Push"
 echo "  Namespace: ${DOCKER_NS}"
 echo "  Version:   ${VERSION}"
+echo "  Registry:  ${HIGRESS_REGISTRY}"
+echo "  Node:      ${NODE_IMAGE}"
 echo "============================================"
+if [ -n "${DOCKER_BUILD_ARGS}" ]; then
+    echo "  Extra build args: ${DOCKER_BUILD_ARGS}"
+fi
 echo ""
 
 # ── Step 1: Build hiclaw-controller ──────────────────────────────────────
@@ -36,6 +52,8 @@ rm -rf ./hiclaw-controller/agent
 cp -r ./manager/agent ./hiclaw-controller/agent
 
 docker build \
+    ${DOCKER_BUILD_ARGS} \
+    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
     -t hiclaw/hiclaw-controller:${VERSION} \
     ./hiclaw-controller
 
@@ -50,6 +68,8 @@ echo "  ✓ hiclaw-controller built"
 echo "[2/5] Building embedded (infrastructure)..."
 
 docker build \
+    ${DOCKER_BUILD_ARGS} \
+    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
     --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
     -f ./hiclaw-controller/Dockerfile.embedded \
     -t hiclaw/hiclaw-embedded:${VERSION} \
@@ -68,7 +88,10 @@ echo "  ✓ embedded built & pushed"
 echo "[3/5] Building hermes-worker (Manager + Worker)..."
 
 docker build \
+    ${DOCKER_BUILD_ARGS} \
     --build-context shared=./shared/lib \
+    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
+    --build-arg NODE_IMAGE="${NODE_IMAGE}" \
     --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
     -t hiclaw/hiclaw-hermes-worker:${VERSION} \
     ./hermes
@@ -85,7 +108,9 @@ echo "  ✓ hermes-worker built & pushed (includes hermes-web-ui)"
 echo "[4/5] Building copaw-worker..."
 
 docker build \
+    ${DOCKER_BUILD_ARGS} \
     --build-context shared=./shared/lib \
+    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
     --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
     -t hiclaw/hiclaw-copaw-worker:${VERSION} \
     ./copaw
@@ -103,11 +128,15 @@ echo "[5/5] Building openclaw-worker..."
 
 # Build openclaw-base first (shared base for OpenClaw runtime)
 docker build \
+    ${DOCKER_BUILD_ARGS} \
+    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
     -t hiclaw/openclaw-base:${VERSION} \
     ./openclaw-base
 
 docker build \
+    ${DOCKER_BUILD_ARGS} \
     --build-context shared=./shared/lib \
+    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
     --build-arg OPENCLAW_BASE_IMAGE=hiclaw/openclaw-base:${VERSION} \
     -t hiclaw/hiclaw-worker:${VERSION} \
     ./worker
