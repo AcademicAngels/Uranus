@@ -12,6 +12,9 @@ PAGE_SIZE="${HICLAW_FIND_SKILL_NACOS_PAGE_SIZE:-100}"
 RESET='[0m'
 DIM='[38;5;102m'
 TEXT='[38;5;145m'
+GREEN='[0;32m'
+YELLOW='[0;33m'
+RED='[0;31m'
 
 get_script_path() {
     raw_path="${0:-hiclaw-find-skill.sh}"
@@ -446,6 +449,117 @@ run_nacos_find() {
         printf '%s%s%s\n' "${TEXT}" "${name}" "${RESET}"
         printf '%s└ %s%s\n\n' "${DIM}" "${desc}" "${RESET}"
     done
+}
+
+# ── Pre-install checks ──────────────────────────────────────────────────────
+
+_parse_frontmatter_field() {
+    local file="$1" field="$2"
+    sed -n '/^---$/,/^---$/p' "$file" 2>/dev/null | grep -m1 "^${field}:" | sed "s/^${field}:[[:space:]]*//" | tr -d '"'"'"
+}
+
+_parse_frontmatter_list() {
+    local file="$1" field="$2"
+    sed -n '/^---$/,/^---$/p' "$file" 2>/dev/null | \
+        sed -n "/^${field}:/,/^[^[:space:]-]/p" | \
+        grep '^  *- ' | sed 's/^  *- //' | tr -d '"'"'"
+}
+
+_check_source_safety() {
+    local source="$1"
+    if echo "$source" | grep -qi 'skills\.sh'; then
+        echo -e "${GREEN}✓ Source: skills.sh (Snyk security audit)${RESET}"
+    elif echo "$source" | grep -qi 'nacos'; then
+        echo -e "${YELLOW}● Source: Nacos enterprise registry${RESET}"
+    else
+        echo -e "${RED}⚠ Source: unknown — review scripts before use${RESET}"
+    fi
+}
+
+_check_dependencies() {
+    local skill_md="$1" worker_skills_dir="$2"
+    local deps
+    deps=$(_parse_frontmatter_list "$skill_md" "requires")
+    [ -z "$deps" ] && return 0
+    local missing=0
+    echo "Dependency check:"
+    while IFS= read -r dep; do
+        [ -z "$dep" ] && continue
+        if [ -d "${worker_skills_dir}/${dep}" ]; then
+            echo -e "  ${GREEN}✓ ${dep} — installed${RESET}"
+        else
+            echo -e "  ${RED}✗ ${dep} — NOT installed${RESET}"
+            missing=1
+        fi
+    done <<< "$deps"
+    return $missing
+}
+
+_check_mcp_servers() {
+    local skill_md="$1"
+    local servers
+    servers=$(_parse_frontmatter_list "$skill_md" "mcpServers")
+    [ -z "$servers" ] && return 0
+    local mcporter_config="${HOME}/config/mcporter.json"
+    [ ! -f "$mcporter_config" ] && mcporter_config="${HOME}/mcporter-servers.json"
+    echo "MCP server check:"
+    while IFS= read -r server; do
+        [ -z "$server" ] && continue
+        if [ -f "$mcporter_config" ] && jq -e ".mcpServers[\"${server}\"]" "$mcporter_config" >/dev/null 2>&1; then
+            echo -e "  ${GREEN}✓ ${server} — registered${RESET}"
+        else
+            echo -e "  ${YELLOW}⚠ ${server} — not registered${RESET}"
+        fi
+    done <<< "$servers"
+}
+
+_check_script_safety() {
+    local scripts_dir="$1"
+    [ ! -d "$scripts_dir" ] && return 0
+    local findings
+    findings=$(grep -rn 'curl.*|.*sh\|wget.*|.*sh\|rm[[:space:]].*-rf[[:space:]]*/\|eval[[:space:]]\|base64.*-d' "$scripts_dir" 2>/dev/null || true)
+    if [ -n "$findings" ]; then
+        echo -e "${YELLOW}⚠ Suspicious patterns found in scripts:${RESET}"
+        echo "$findings" | head -5
+        [ "$(echo "$findings" | wc -l)" -gt 5 ] && echo "  ... and more"
+    fi
+}
+
+_write_source_metadata() {
+    local skill_md="$1" registry="$2" checksum="$3"
+    local install_date
+    install_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    [ ! -f "$skill_md" ] && return 0
+    head -1 "$skill_md" | grep -q '^---$' || return 0
+    local tmpfile="${skill_md}.tmp"
+    awk -v reg="$registry" -v date="$install_date" -v sum="$checksum" '
+    BEGIN { in_fm=0; count=0 }
+    /^---$/ { count++; if (count==2) {
+        print "source:"
+        print "  registry: \"" reg "\""
+        print "  installed_at: \"" date "\""
+        print "  checksum: \"" sum "\""
+    }}
+    { print }
+    ' "$skill_md" > "$tmpfile" && mv "$tmpfile" "$skill_md"
+}
+
+_run_preinstall_checks() {
+    local skill_dir="$1" source_registry="$2"
+    local skill_md="${skill_dir}/SKILL.md"
+    [ ! -f "$skill_md" ] && return 0
+    echo ""
+    echo "── Pre-install checks ──"
+    _check_source_safety "$source_registry"
+    local version
+    version=$(_parse_frontmatter_field "$skill_md" "version")
+    [ -n "$version" ] && echo "Version: ${version}" || echo "Version: not specified"
+    _check_dependencies "$skill_md" "$(dirname "$(dirname "$skill_dir")")" || \
+        echo -e "${YELLOW}⚠ Missing dependencies — install them first for full functionality${RESET}"
+    _check_mcp_servers "$skill_md"
+    _check_script_safety "${skill_dir}/scripts"
+    echo "────────────────────────"
+    echo ""
 }
 
 command_name="${1:-find}"
