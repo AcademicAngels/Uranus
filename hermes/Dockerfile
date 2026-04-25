@@ -32,7 +32,8 @@ FROM ${HICLAW_CONTROLLER_IMAGE} AS hiclaw-controller
 # ============ Stage 3: hermes-web-ui (Node 23 build) ============
 # hermes-web-ui requires Node >=23 and node-pty (native addon).
 # Build in a dedicated stage, copy the compiled artifact to final image.
-FROM node:23-slim AS webui-builder
+ARG NODE_IMAGE=node:23-slim
+FROM ${NODE_IMAGE} AS webui-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
         make g++ python3 \
     && rm -rf /var/lib/apt/lists/*
