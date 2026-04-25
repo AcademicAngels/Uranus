@@ -1,0 +1,28 @@
+# MCP Server template for Playwright browser automation.
+# Playwright MCP must be running locally via: npx @playwright/mcp --port 3000
+#
+# Usage:
+#   bash scripts/setup-mcp-proxy.sh playwright http://localhost:3000/mcp sse
+
+server:
+  name: playwright
+  config: {}
+
+tools:
+  - name: browser_navigate
+    description: "Navigate to a URL in the browser"
+
+  - name: browser_snapshot
+    description: "Take an accessibility snapshot of the current page"
+
+  - name: browser_click
+    description: "Click an element on the page by accessibility ref"
+
+  - name: browser_type
+    description: "Type text into an input field"
+
+  - name: browser_screenshot
+    description: "Take a screenshot of the current page"
+
+  - name: browser_evaluate
+    description: "Execute JavaScript in the browser console"
