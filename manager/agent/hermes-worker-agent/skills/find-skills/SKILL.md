@@ -169,6 +169,36 @@ If this is something you do often, you could create your own skill:
 skills init my-xyz-skill
 ```
 
+## SKILL.md Frontmatter Reference
+
+Skills can declare optional metadata in their YAML frontmatter:
+
+```yaml
+---
+name: my-skill
+description: Use when the user needs...
+version: "1.0.0"          # Semantic version (checked for updates)
+requires:                   # Skills that must be installed first
+  - file-sync
+  - mcporter
+mcpServers:                 # MCP servers this skill needs
+  - github
+---
+```
+
+All fields except `name` and `description` are optional. The `source` block is written automatically at install time — do not add it manually.
+
+## Verification (Recommended)
+
+Skill authors should include a verification section:
+
+```markdown
+## Verification
+
+1. Run: `bash scripts/my-script.sh --help`
+   Expected: Usage information displayed
+```
+
 ## Skill Resources
 
 `${HERMES_HOME:-$HOME/.hermes}/skills/find-skills/scripts/hiclaw-find-skill.sh` is the resource that belongs to this skill. Always invoke that exact path (or the `FIND_SKILLS_SCRIPT` variable above) instead of `scripts/hiclaw-find-skill.sh`, so your command does not depend on the current directory.
