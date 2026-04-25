@@ -15,8 +15,11 @@
 #
 # China/proxy build examples:
 #   DOCKER_BUILD_ARGS="--build-arg APT_MIRROR=mirrors.aliyun.com --build-arg NPM_REGISTRY=https://registry.npmmirror.com/" \
-#   NODE_IMAGE=higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/node:23-slim \
 #   bash scripts/build-and-push.sh
+#
+#   DOCKERHUB_MIRROR_PREFIX=m.daocloud.io/docker.io bash scripts/build-and-push.sh
+#
+#   NODE_IMAGE=registry.example.com/library/node:23-slim bash scripts/build-and-push.sh
 #
 #   DOCKER_BUILD_ARGS="--build-arg HTTP_PROXY=http://host.docker.internal:1087 --build-arg HTTPS_PROXY=http://host.docker.internal:1087" \
 #   bash scripts/build-and-push.sh
@@ -27,7 +30,8 @@ set -euo pipefail
 DOCKER_NS="${DOCKER_NS:-tingchaopavilion}"
 VERSION="${VERSION:-dev-$(git rev-parse --short HEAD)}"
 HIGRESS_REGISTRY="${HIGRESS_REGISTRY:-higress-registry.cn-hangzhou.cr.aliyuncs.com}"
-NODE_IMAGE="${NODE_IMAGE:-${HIGRESS_REGISTRY}/higress/node:23-slim}"
+DOCKERHUB_MIRROR_PREFIX="${DOCKERHUB_MIRROR_PREFIX:-m.daocloud.io/docker.io}"
+NODE_IMAGE="${NODE_IMAGE:-${DOCKERHUB_MIRROR_PREFIX}/library/node:23-slim}"
 DOCKER_BUILD_ARGS="${DOCKER_BUILD_ARGS:-}"
 export DOCKER_BUILDKIT=1
 
@@ -36,6 +40,7 @@ echo "  Uranus Build & Push"
 echo "  Namespace: ${DOCKER_NS}"
 echo "  Version:   ${VERSION}"
 echo "  Registry:  ${HIGRESS_REGISTRY}"
+echo "  HubMirror: ${DOCKERHUB_MIRROR_PREFIX}"
 echo "  Node:      ${NODE_IMAGE}"
 echo "============================================"
 if [ -n "${DOCKER_BUILD_ARGS}" ]; then
