@@ -22,6 +22,7 @@
 
 ARG HIGRESS_REGISTRY=higress-registry.cn-hangzhou.cr.aliyuncs.com
 ARG HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:latest
+ARG NODE_IMAGE=node:23-slim
 
 # ============ Stage 1: mc (MinIO Client) ============
 FROM ${HIGRESS_REGISTRY}/higress/mc:20260216 AS mc
@@ -32,7 +33,6 @@ FROM ${HICLAW_CONTROLLER_IMAGE} AS hiclaw-controller
 # ============ Stage 3: hermes-web-ui (Node 23 build) ============
 # hermes-web-ui requires Node >=23 and node-pty (native addon).
 # Build in a dedicated stage, copy the compiled artifact to final image.
-ARG NODE_IMAGE=node:23-slim
 FROM ${NODE_IMAGE} AS webui-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
         make g++ python3 \
