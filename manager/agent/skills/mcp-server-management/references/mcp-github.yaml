@@ -1678,3 +1678,161 @@ tools:
       value: "2022-11-28"
     - key: User-Agent
       value: "higress-mcp"
+
+# ── GitHub Actions / CI/CD tools ─────────────────────────────────────────
+
+- name: list_workflow_runs
+  description: "List recent workflow runs for a repository. Use to check CI/CD status after pushing code."
+  args:
+  - name: owner
+    type: string
+    required: true
+    description: "Repository owner"
+  - name: repo
+    type: string
+    required: true
+    description: "Repository name"
+  - name: branch
+    type: string
+    required: false
+    description: "Filter by branch name"
+  - name: status
+    type: string
+    required: false
+    description: "Filter by status (completed, in_progress, queued)"
+  - name: per_page
+    type: number
+    required: false
+    description: "Results per page (default 10, max 100)"
+  requestTemplate:
+    url: "https://api.github.com/repos/{{.args.owner}}/{{.args.repo}}/actions/runs?per_page={{.args.per_page | default 10}}{{if .args.branch}}&branch={{.args.branch}}{{end}}{{if .args.status}}&status={{.args.status}}{{end}}"
+    method: GET
+    headers:
+    - key: Authorization
+      value: "Bearer {{.config.accessToken}}"
+    - key: Accept
+      value: "application/vnd.github+json"
+    - key: X-GitHub-Api-Version
+      value: "2022-11-28"
+    - key: User-Agent
+      value: "higress-mcp"
+
+- name: get_workflow_run
+  description: "Get details of a specific workflow run including status, conclusion, and logs URL."
+  args:
+  - name: owner
+    type: string
+    required: true
+    description: "Repository owner"
+  - name: repo
+    type: string
+    required: true
+    description: "Repository name"
+  - name: run_id
+    type: number
+    required: true
+    description: "Workflow run ID"
+  requestTemplate:
+    url: "https://api.github.com/repos/{{.args.owner}}/{{.args.repo}}/actions/runs/{{.args.run_id}}"
+    method: GET
+    headers:
+    - key: Authorization
+      value: "Bearer {{.config.accessToken}}"
+    - key: Accept
+      value: "application/vnd.github+json"
+    - key: X-GitHub-Api-Version
+      value: "2022-11-28"
+    - key: User-Agent
+      value: "higress-mcp"
+
+- name: trigger_workflow_dispatch
+  description: "Trigger a workflow_dispatch event to start a GitHub Actions workflow manually."
+  args:
+  - name: owner
+    type: string
+    required: true
+    description: "Repository owner"
+  - name: repo
+    type: string
+    required: true
+    description: "Repository name"
+  - name: workflow_id
+    type: string
+    required: true
+    description: "Workflow file name (e.g., build.yml) or workflow ID"
+  - name: ref
+    type: string
+    required: true
+    description: "Branch or tag to run the workflow on"
+  requestTemplate:
+    url: "https://api.github.com/repos/{{.args.owner}}/{{.args.repo}}/actions/workflows/{{.args.workflow_id}}/dispatches"
+    method: POST
+    body: |
+      {
+        "ref": "{{.args.ref}}"
+      }
+    headers:
+    - key: Authorization
+      value: "Bearer {{.config.accessToken}}"
+    - key: Accept
+      value: "application/vnd.github+json"
+    - key: X-GitHub-Api-Version
+      value: "2022-11-28"
+    - key: User-Agent
+      value: "higress-mcp"
+
+- name: list_check_runs
+  description: "List check runs (CI checks) for a specific commit SHA or branch ref."
+  args:
+  - name: owner
+    type: string
+    required: true
+    description: "Repository owner"
+  - name: repo
+    type: string
+    required: true
+    description: "Repository name"
+  - name: ref
+    type: string
+    required: true
+    description: "Commit SHA or branch name"
+  requestTemplate:
+    url: "https://api.github.com/repos/{{.args.owner}}/{{.args.repo}}/commits/{{.args.ref}}/check-runs"
+    method: GET
+    headers:
+    - key: Authorization
+      value: "Bearer {{.config.accessToken}}"
+    - key: Accept
+      value: "application/vnd.github+json"
+    - key: X-GitHub-Api-Version
+      value: "2022-11-28"
+    - key: User-Agent
+      value: "higress-mcp"
+
+- name: get_check_run
+  description: "Get details of a specific check run including status, conclusion, and output summary."
+  args:
+  - name: owner
+    type: string
+    required: true
+    description: "Repository owner"
+  - name: repo
+    type: string
+    required: true
+    description: "Repository name"
+  - name: check_run_id
+    type: number
+    required: true
+    description: "Check run ID"
+  requestTemplate:
+    url: "https://api.github.com/repos/{{.args.owner}}/{{.args.repo}}/check-runs/{{.args.check_run_id}}"
+    method: GET
+    headers:
+    - key: Authorization
+      value: "Bearer {{.config.accessToken}}"
+    - key: Accept
+      value: "application/vnd.github+json"
+    - key: X-GitHub-Api-Version
+      value: "2022-11-28"
+    - key: User-Agent
+      value: "higress-mcp"
