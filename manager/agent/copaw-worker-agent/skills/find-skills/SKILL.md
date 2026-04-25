@@ -1,5 +1,6 @@
 ---
 name: find-skills
+version: "1.0.0"
 description: Discover and install agent skills from the open ecosystem. Use when you encounter an unfamiliar domain, framework, or workflow that you lack specialized knowledge about, or when your coordinator suggests searching for skills before starting a task.
 ---
 

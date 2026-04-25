@@ -1,5 +1,6 @@
 ---
 name: task-progress
+version: "1.0.0"
 description: Use when executing a task (progress logging, plan updates), when resuming a task after session reset, or when managing task history. Covers progress log format, task-history.json, and resume flow.
 ---
 

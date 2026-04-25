@@ -1,5 +1,6 @@
 ---
 name: project-participation
+version: "1.0.0"
 description: Use when you are invited to a Project Room or assigned a task within a multi-worker project. Covers project plan reading, task coordination with other Workers, and git author config.
 ---
 

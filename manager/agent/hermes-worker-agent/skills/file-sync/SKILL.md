@@ -1,5 +1,6 @@
 ---
 name: file-sync
+version: "1.0.0"
 description: Sync files with centralized storage. Use when your coordinator or another Worker notifies you of file updates (config changes, task files, shared data, collaboration artifacts).
 ---
 

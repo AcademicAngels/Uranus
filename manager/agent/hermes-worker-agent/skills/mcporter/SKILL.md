@@ -1,5 +1,6 @@
 ---
 name: mcporter
+version: "1.0.0"
 description: Discover and call MCP Server tools via the mcporter CLI. Use when your coordinator notifies you about new MCP tools, or when you need to call external APIs. Includes workflow for generating skill documentation for new MCP servers.
 ---
 
@@ -69,6 +70,7 @@ Example structure:
 ```markdown
 ---
 name: weather-operations
+version: "1.0.0"
 description: Query weather data via the weather MCP server. Use when you need current weather, forecasts, or climate data.
 assign_when: Worker needs weather information for a task
 ---
