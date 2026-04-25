@@ -168,13 +168,15 @@ fi
 # ── Hermes Web UI: start as background sidecar ────────────────────────────
 # Auth is disabled because the container is already behind Higress Gateway
 # key-auth.  The UPSTREAM points at the local hermes-agent gateway.
-if command -v hermes-web-ui >/dev/null 2>&1; then
+WEBUI_SERVER="/usr/local/bin/hermes-web-ui-server"
+if [ -f "${WEBUI_SERVER}" ]; then
     WEBUI_PORT="${HICLAW_WEBUI_PORT:-6060}"
     AUTH_DISABLED=true \
     UPSTREAM="http://127.0.0.1:8642" \
     HERMES_BIN="${VENV}/bin/hermes" \
+    HERMES_HOME="${HERMES_HOME}" \
     PORT="${WEBUI_PORT}" \
-    hermes-web-ui start --port "${WEBUI_PORT}" &
+    node "${WEBUI_SERVER}" &
     log "hermes-web-ui started on port ${WEBUI_PORT} (auth disabled, upstream=localhost:8642)"
 fi
 

@@ -29,6 +29,15 @@ FROM ${HIGRESS_REGISTRY}/higress/mc:20260216 AS mc
 # ============ Stage 2: hiclaw CLI (from controller image) ============
 FROM ${HICLAW_CONTROLLER_IMAGE} AS hiclaw-controller
 
+# ============ Stage 3: hermes-web-ui (Node 23 build) ============
+# hermes-web-ui requires Node >=23 and node-pty (native addon).
+# Build in a dedicated stage, copy the compiled artifact to final image.
+FROM node:23-slim AS webui-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        make g++ python3 \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g hermes-web-ui && rm -rf /root/.npm
+
 # ============ Final Image ============
 FROM ${HIGRESS_REGISTRY}/higress/python:3.11-slim
 
@@ -76,8 +85,12 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN npm config set registry ${NPM_REGISTRY} && \
-    npm install -g mcporter skills @nacos-group/cli @bitbonsai/mcpvault hermes-web-ui && \
+    npm install -g mcporter skills @nacos-group/cli @bitbonsai/mcpvault && \
     rm -rf /root/.npm
+
+# hermes-web-ui: copy pre-compiled from Stage 3 (Node 23 build)
+COPY --from=webui-builder /usr/local/lib/node_modules/hermes-web-ui /usr/local/lib/node_modules/hermes-web-ui
+RUN ln -sf /usr/local/lib/node_modules/hermes-web-ui/dist/server/index.js /usr/local/bin/hermes-web-ui-server
 
 # --- Heavy install layer (cached unless HERMES_GIT_REF or hermes-worker
 #     pyproject.toml change) ---
