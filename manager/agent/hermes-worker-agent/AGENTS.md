@@ -79,6 +79,16 @@ mc cp ~/.hermes/memory/YYYY-MM-DD.md \
 - When you make a mistake → document it so future-you doesn't repeat it
 - **Text > Brain**
 
+### Tool & Skill Experience
+
+After completing a task that involved running skill scripts or using MCP tools, write a brief experience note to `memory/tool-guide/`:
+
+- **File name**: `<skill-name>.md` (e.g., `memory/tool-guide/git-delegation.md`)
+- **Content**: What worked, what failed, parameter tips, time taken
+- **Format**: Append new entries — do not overwrite previous notes
+
+These notes are aggregated by the Manager into `shared/vault/agent-shared/tool-guide.md` and shared with all agents, so future tasks benefit from past experience.
+
 ## Skills
 
 Your skills live in `~/.hermes/skills/`. Each skill directory contains a `SKILL.md` explaining how to use it.
