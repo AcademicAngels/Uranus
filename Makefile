@@ -165,21 +165,24 @@ build-embedded: build-hiclaw-controller ## Build embedded all-in-one controller 
 		-t $(LOCAL_EMBEDDED) \
 		.
 
-build-worker: ## Build Worker image
+build-worker: build-hiclaw-controller ## Build Worker image
 	@echo "==> Building Worker image: $(LOCAL_WORKER) (registry: $(HIGRESS_REGISTRY))"
 	docker build $(PLATFORM_FLAG) $(REGISTRY_ARG) $(OPENCLAW_BASE_BUILD_ARG) $(SHARED_LIB_CTX) $(DOCKER_BUILD_ARGS) \
+		--build-arg HICLAW_CONTROLLER_IMAGE=$(LOCAL_CONTROLLER) \
 		-t $(LOCAL_WORKER) \
 		./worker/
 
-build-copaw-worker: ## Build CoPaw Worker image
+build-copaw-worker: build-hiclaw-controller ## Build CoPaw Worker image
 	@echo "==> Building CoPaw Worker image: $(LOCAL_COPAW_WORKER) (registry: $(HIGRESS_REGISTRY))"
 	docker build $(PLATFORM_FLAG) $(REGISTRY_ARG) $(SHARED_LIB_CTX) $(DOCKER_BUILD_ARGS) \
+		--build-arg HICLAW_CONTROLLER_IMAGE=$(LOCAL_CONTROLLER) \
 		-t $(LOCAL_COPAW_WORKER) \
 		./copaw/
 
-build-hermes-worker: ## Build Hermes Worker image
+build-hermes-worker: build-hiclaw-controller ## Build Hermes Worker image
 	@echo "==> Building Hermes Worker image: $(LOCAL_HERMES_WORKER) (registry: $(HIGRESS_REGISTRY))"
 	docker build $(PLATFORM_FLAG) $(REGISTRY_ARG) $(SHARED_LIB_CTX) $(DOCKER_BUILD_ARGS) \
+		--build-arg HICLAW_CONTROLLER_IMAGE=$(LOCAL_CONTROLLER) \
 		-t $(LOCAL_HERMES_WORKER) \
 		./hermes/
 
@@ -334,7 +337,7 @@ else
 		.
 endif
 
-push-manager-copaw: buildx-setup ## Build + push multi-arch Manager CoPaw image
+push-manager-copaw: push-hiclaw-controller buildx-setup ## Build + push multi-arch Manager CoPaw image
 	@echo "==> Building + pushing multi-arch Manager CoPaw: $(MANAGER_COPAW_TAG) [$(MULTIARCH_PLATFORMS)]"
 ifeq ($(IS_PODMAN),1)
 	-podman manifest rm $(MANAGER_COPAW_TAG) 2>/dev/null
@@ -363,7 +366,7 @@ else
 		.
 endif
 
-push-worker: buildx-setup ## Build + push multi-arch Worker image
+push-worker: push-hiclaw-controller buildx-setup ## Build + push multi-arch Worker image
 	@echo "==> Building + pushing multi-arch Worker: $(WORKER_TAG) [$(MULTIARCH_PLATFORMS)]"
 ifeq ($(IS_PODMAN),1)
 	@# Podman: build each platform into a manifest list, then push
@@ -391,7 +394,7 @@ else
 		./worker/
 endif
 
-push-copaw-worker: buildx-setup ## Build + push multi-arch CoPaw Worker image
+push-copaw-worker: push-hiclaw-controller buildx-setup ## Build + push multi-arch CoPaw Worker image
 	@echo "==> Building + pushing multi-arch CoPaw Worker: $(COPAW_WORKER_TAG) [$(MULTIARCH_PLATFORMS)]"
 ifeq ($(IS_PODMAN),1)
 	-podman manifest rm $(COPAW_WORKER_TAG) 2>/dev/null
@@ -418,7 +421,7 @@ else
 		./copaw/
 endif
 
-push-hermes-worker: buildx-setup ## Build + push multi-arch Hermes Worker image
+push-hermes-worker: push-hiclaw-controller buildx-setup ## Build + push multi-arch Hermes Worker image
 	@echo "==> Building + pushing multi-arch Hermes Worker: $(HERMES_WORKER_TAG) [$(MULTIARCH_PLATFORMS)]"
 ifeq ($(IS_PODMAN),1)
 	-podman manifest rm $(HERMES_WORKER_TAG) 2>/dev/null
