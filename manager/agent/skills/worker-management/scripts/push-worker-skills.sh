@@ -66,7 +66,7 @@ _load_registry() {
     if [ ! -f "${REGISTRY_FILE}" ]; then
         log "Registry not found, initializing..."
         mkdir -p "$(dirname "${REGISTRY_FILE}")"
-        echo '{"version":1,"updated_at":"","workers":{}}' > "${REGISTRY_FILE}"
+        echo '{"version":2,"updated_at":"","workers":{}}' > "${REGISTRY_FILE}"
     fi
     cat "${REGISTRY_FILE}"
 }
@@ -82,7 +82,17 @@ _save_registry() {
 _get_worker_skills() {
     local registry="$1"
     local worker="$2"
-    echo "${registry}" | jq -r --arg w "${worker}" '.workers[$w].skills // [] | .[]'
+    local skills_val
+    skills_val=$(echo "${registry}" | jq -r --arg w "${worker}" '.workers[$w].skills // empty')
+    if [ -z "$skills_val" ]; then
+        return 0
+    fi
+    echo "${registry}" | jq -r --arg w "${worker}" '
+        .workers[$w].skills |
+        if type == "array" then .[]
+        elif type == "object" then keys[]
+        else empty end
+    '
 }
 
 _get_worker_room_id() {
@@ -205,12 +215,20 @@ if [ -n "${ADD_SKILL}" ] && [ -n "${WORKER_NAME}" ]; then
     fi
 
     ALREADY=$(echo "${REGISTRY}" | jq -r --arg w "${WORKER_NAME}" --arg s "${ADD_SKILL}" \
-        '.workers[$w].skills // [] | map(select(. == $s)) | length')
-    if [ "${ALREADY}" -gt 0 ]; then
+        '.workers[$w].skills[$s] // empty')
+    if [ -n "${ALREADY}" ]; then
         log "Skill '${ADD_SKILL}' already assigned to '${WORKER_NAME}', will re-push"
     else
-        REGISTRY=$(echo "${REGISTRY}" | jq --arg w "${WORKER_NAME}" --arg s "${ADD_SKILL}" \
-            '.workers[$w].skills += [$s]')
+        _skill_version="unknown"
+        _skill_md="${WORKER_SKILLS_DIR}/${ADD_SKILL}/SKILL.md"
+        if [ -f "$_skill_md" ]; then
+            _skill_version=$(grep -m1 '^version:' "$_skill_md" | sed 's/^version:[[:space:]]*//' | tr -d '"'"'" || echo "unknown")
+            [ -z "$_skill_version" ] && _skill_version="unknown"
+        fi
+        _install_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        REGISTRY=$(echo "${REGISTRY}" | jq --arg w "${WORKER_NAME}" --arg s "${ADD_SKILL}" --arg v "$_skill_version" --arg d "$_install_date" \
+            '.workers[$w].skills[$s] = {"version": $v, "source": "manual", "installed_at": $d}')
         log "Added skill '${ADD_SKILL}' to worker '${WORKER_NAME}' in registry"
     fi
     SKILL_NAME="${ADD_SKILL}"
@@ -234,7 +252,7 @@ if [ -n "${REMOVE_SKILL}" ] && [ -n "${WORKER_NAME}" ]; then
     done
 
     REGISTRY=$(echo "${REGISTRY}" | jq --arg w "${WORKER_NAME}" --arg s "${REMOVE_SKILL}" \
-        '.workers[$w].skills = [.workers[$w].skills // [] | .[] | select(. != $s)]')
+        'del(.workers[$w].skills[$s])')
     _save_registry "${REGISTRY}"
     log "Removed skill '${REMOVE_SKILL}' from worker '${WORKER_NAME}'"
     # Actually delete skill files from MinIO
@@ -281,7 +299,12 @@ elif [ -n "${WORKER_NAME}" ]; then
 elif [ -n "${SKILL_NAME}" ]; then
     # Push specific skill to all workers that have it
     WORKER_LIST=$(echo "${REGISTRY}" | jq -r --arg s "${SKILL_NAME}" \
-        '.workers | to_entries[] | select(.value.skills // [] | map(select(. == $s)) | length > 0) | .key')
+        '.workers | to_entries[] | select(
+            .value.skills |
+            if type == "array" then map(select(. == $s)) | length > 0
+            elif type == "object" then has($s)
+            else false end
+        ) | .key')
     if [ -z "${WORKER_LIST}" ]; then
         log "No workers found with skill '${SKILL_NAME}'"
         exit 0
