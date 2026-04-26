@@ -30,9 +30,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Registry: DockerHub tingchaopavilion (not Alibaba Cloud)
 export HICLAW_REGISTRY="${HICLAW_REGISTRY:-docker.io/tingchaopavilion}"
 
-# Version: match the git commit of this checkout
-URANUS_VERSION="${URANUS_VERSION:-dev-$(git -C "${SCRIPT_DIR}/.." rev-parse --short HEAD 2>/dev/null || echo latest)}"
-export HICLAW_VERSION="${HICLAW_VERSION:-${URANUS_VERSION}}"
+# Version: query DockerHub for latest tag, fallback to git hash, then "latest"
+if [ -z "${HICLAW_VERSION:-}" ]; then
+    _dh_tag=$(curl -sf --max-time 10 \
+        "https://hub.docker.com/v2/repositories/tingchaopavilion/uranus-embedded/tags/?page_size=1&ordering=last_updated" \
+        2>/dev/null | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)
+    if [ -n "${_dh_tag}" ]; then
+        HICLAW_VERSION="${_dh_tag}"
+    else
+        _git_hash=$(git -C "${SCRIPT_DIR}/.." rev-parse --short HEAD 2>/dev/null || true)
+        HICLAW_VERSION="${_git_hash:+dev-${_git_hash}}"
+        HICLAW_VERSION="${HICLAW_VERSION:-latest}"
+    fi
+fi
+export HICLAW_VERSION
 
 # Manager runtime: Hermes (not openclaw/copaw)
 export HICLAW_MANAGER_RUNTIME="${HICLAW_MANAGER_RUNTIME:-hermes}"

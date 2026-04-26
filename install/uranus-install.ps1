@@ -59,19 +59,31 @@ param(
 # Configuration
 # ============================================================
 
-# Uranus: auto-detect version from git commit hash
+# Uranus: resolve version from DockerHub latest tag
 if ($env:HICLAW_VERSION) {
     $script:HICLAW_VERSION = $env:HICLAW_VERSION
 } else {
     try {
-        $gitHash = (& git rev-parse --short HEAD 2>$null)
-        if ($LASTEXITCODE -eq 0 -and $gitHash) {
-            $script:HICLAW_VERSION = "dev-$($gitHash.Trim())"
+        $tagsUrl = "https://hub.docker.com/v2/repositories/tingchaopavilion/uranus-embedded/tags/?page_size=1&ordering=last_updated"
+        $resp = Invoke-RestMethod -Uri $tagsUrl -TimeoutSec 10 -ErrorAction Stop
+        $latestTag = $resp.results[0].name
+        if ($latestTag) {
+            $script:HICLAW_VERSION = $latestTag
         } else {
             $script:HICLAW_VERSION = "latest"
         }
     } catch {
-        $script:HICLAW_VERSION = "latest"
+        # Fallback: try git hash, then latest
+        try {
+            $gitHash = (& git rev-parse --short HEAD 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $gitHash) {
+                $script:HICLAW_VERSION = "dev-$($gitHash.Trim())"
+            } else {
+                $script:HICLAW_VERSION = "latest"
+            }
+        } catch {
+            $script:HICLAW_VERSION = "latest"
+        }
     }
 }
 $script:HICLAW_NON_INTERACTIVE = if ($env:HICLAW_NON_INTERACTIVE -eq "1" -or $NonInteractive) { $true } else { $false }
