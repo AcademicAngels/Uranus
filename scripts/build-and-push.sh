@@ -1,190 +1,225 @@
 #!/bin/bash
 # Uranus Build & Push Script
 #
-# For Windows Docker Desktop + WSL Ubuntu
-# Builds all images needed for Hermes-as-Manager deployment
-#
-# Prerequisites:
-#   - Docker Desktop with WSL Integration enabled
-#   - docker login completed
-#   - Project at /mnt/c/.../Uranus (or any WSL-accessible path)
+# Builds and pushes Docker images for Hermes-as-Manager deployment.
+# Supports selective builds, remote tag checks, and China mirror proxies.
 #
 # Usage:
-#   cd /path/to/Uranus
-#   bash scripts/build-and-push.sh
+#   bash scripts/build-and-push.sh              # build all
+#   bash scripts/build-and-push.sh hermes       # build only hermes-worker
+#   bash scripts/build-and-push.sh copaw hermes # build copaw + hermes
+#   bash scripts/build-and-push.sh --check      # check which images need rebuild
 #
-# China/proxy build examples:
-#   DOCKER_BUILD_ARGS="--build-arg APT_MIRROR=mirrors.aliyun.com --build-arg NPM_REGISTRY=https://registry.npmmirror.com/" \
-#   bash scripts/build-and-push.sh
+# Available targets: controller, embedded, hermes, copaw, openclaw
 #
-#   DOCKERHUB_MIRROR_PREFIX=m.daocloud.io/docker.io bash scripts/build-and-push.sh
-#
-#   NODE_IMAGE=registry.example.com/library/node:23-slim bash scripts/build-and-push.sh
-#
-#   DOCKER_BUILD_ARGS="--build-arg HTTP_PROXY=http://host.docker.internal:1087 --build-arg HTTPS_PROXY=http://host.docker.internal:1087" \
-#   bash scripts/build-and-push.sh
+# Environment variables:
+#   DOCKER_NS              DockerHub namespace (default: tingchaopavilion)
+#   VERSION                Image tag (default: dev-<short-sha>)
+#   FORCE_BUILD            Set to 1 to skip remote tag check (default: 0)
+#   SKIP_PUSH              Set to 1 to build only, no push (default: 0)
+#   HIGRESS_REGISTRY       China mirror for Higress base images
+#   DOCKERHUB_MIRROR_PREFIX  Mirror prefix for Docker Hub pulls
+#   NODE_IMAGE             Node.js 23 image for hermes-web-ui build stage
+#   DOCKER_BUILD_ARGS      Extra docker build args (e.g., proxy settings)
 
 set -euo pipefail
 
-# ── Configuration ────────────────────────────────────────────────────────
 DOCKER_NS="${DOCKER_NS:-tingchaopavilion}"
 VERSION="${VERSION:-dev-$(git rev-parse --short HEAD)}"
+FORCE_BUILD="${FORCE_BUILD:-0}"
+SKIP_PUSH="${SKIP_PUSH:-0}"
 HIGRESS_REGISTRY="${HIGRESS_REGISTRY:-higress-registry.cn-hangzhou.cr.aliyuncs.com}"
 DOCKERHUB_MIRROR_PREFIX="${DOCKERHUB_MIRROR_PREFIX:-m.daocloud.io/docker.io}"
 NODE_IMAGE="${NODE_IMAGE:-${DOCKERHUB_MIRROR_PREFIX}/library/node:23-slim}"
 DOCKER_BUILD_ARGS="${DOCKER_BUILD_ARGS:-}"
 export DOCKER_BUILDKIT=1
 
-echo "============================================"
-echo "  Uranus Build & Push"
-echo "  Namespace: ${DOCKER_NS}"
-echo "  Version:   ${VERSION}"
-echo "  Registry:  ${HIGRESS_REGISTRY}"
-echo "  HubMirror: ${DOCKERHUB_MIRROR_PREFIX}"
-echo "  Node:      ${NODE_IMAGE}"
-echo "============================================"
-if [ -n "${DOCKER_BUILD_ARGS}" ]; then
-    echo "  Extra build args: ${DOCKER_BUILD_ARGS}"
-fi
-echo ""
+remote_tag_exists() {
+    local image="$1"
+    if [ "${FORCE_BUILD}" = "1" ]; then
+        return 1
+    fi
+    docker manifest inspect "${image}" >/dev/null 2>&1
+}
 
-# ── Step 1: Build hiclaw-controller ──────────────────────────────────────
-# Prerequisite for embedded image. Contains controller binary, hiclaw CLI,
-# kube-apiserver, CRDs, and agent config templates.
-echo "[1/5] Building hiclaw-controller..."
+tag_and_push() {
+    local local_tag="$1"
+    local remote_tag="$2"
+    docker tag "${local_tag}" "${remote_tag}"
+    if [ "${SKIP_PUSH}" = "1" ]; then
+        echo "  (skip push: SKIP_PUSH=1)"
+    else
+        docker push "${remote_tag}"
+    fi
+}
 
-rm -rf ./hiclaw-controller/agent
-cp -r ./manager/agent ./hiclaw-controller/agent
+build_controller() {
+    local remote="docker.io/${DOCKER_NS}/uranus-controller:${VERSION}"
+    if remote_tag_exists "${remote}"; then
+        echo "[controller] ${VERSION} already exists remotely, skipping."
+        return 0
+    fi
+    echo "[controller] Building..."
+    rm -rf ./hiclaw-controller/agent
+    cp -r ./manager/agent ./hiclaw-controller/agent
+    docker build \
+        ${DOCKER_BUILD_ARGS} \
+        --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
+        -t hiclaw/hiclaw-controller:${VERSION} \
+        ./hiclaw-controller
+    rm -rf ./hiclaw-controller/agent
+    tag_and_push "hiclaw/hiclaw-controller:${VERSION}" "${remote}"
+    echo "  done."
+}
 
-docker build \
-    ${DOCKER_BUILD_ARGS} \
-    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
-    -t hiclaw/hiclaw-controller:${VERSION} \
-    ./hiclaw-controller
+build_embedded() {
+    local remote="docker.io/${DOCKER_NS}/uranus-embedded:${VERSION}"
+    if remote_tag_exists "${remote}"; then
+        echo "[embedded] ${VERSION} already exists remotely, skipping."
+        return 0
+    fi
+    echo "[embedded] Building..."
+    docker build \
+        ${DOCKER_BUILD_ARGS} \
+        --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
+        --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
+        -f ./hiclaw-controller/Dockerfile.embedded \
+        -t hiclaw/hiclaw-embedded:${VERSION} \
+        .
+    tag_and_push "hiclaw/hiclaw-embedded:${VERSION}" "${remote}"
+    echo "  done."
+}
 
-rm -rf ./hiclaw-controller/agent
+build_hermes() {
+    local remote="docker.io/${DOCKER_NS}/uranus-hermes-worker:${VERSION}"
+    if remote_tag_exists "${remote}"; then
+        echo "[hermes] ${VERSION} already exists remotely, skipping."
+        return 0
+    fi
+    echo "[hermes] Building (includes hermes-web-ui)..."
+    docker build \
+        ${DOCKER_BUILD_ARGS} \
+        --build-context shared=./shared/lib \
+        --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
+        --build-arg NODE_IMAGE="${NODE_IMAGE}" \
+        --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
+        -t hiclaw/hiclaw-hermes-worker:${VERSION} \
+        ./hermes
+    tag_and_push "hiclaw/hiclaw-hermes-worker:${VERSION}" "${remote}"
+    echo "  done."
+}
 
-echo "  ✓ hiclaw-controller built"
+build_copaw() {
+    local remote="docker.io/${DOCKER_NS}/uranus-copaw-worker:${VERSION}"
+    if remote_tag_exists "${remote}"; then
+        echo "[copaw] ${VERSION} already exists remotely, skipping."
+        return 0
+    fi
+    echo "[copaw] Building..."
+    docker build \
+        ${DOCKER_BUILD_ARGS} \
+        --build-context shared=./shared/lib \
+        --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
+        --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
+        -t hiclaw/hiclaw-copaw-worker:${VERSION} \
+        ./copaw
+    tag_and_push "hiclaw/hiclaw-copaw-worker:${VERSION}" "${remote}"
+    echo "  done."
+}
 
-# ── Step 2: Build embedded (infrastructure) ──────────────────────────────
-# All-in-one container: Tuwunel (Matrix) + MinIO + Higress + Element Web +
-# Controller + kube-apiserver. This is the deployment entry point.
-# Does NOT contain the Manager Agent — Controller creates it dynamically.
-echo "[2/5] Building embedded (infrastructure)..."
+build_openclaw() {
+    local remote="docker.io/${DOCKER_NS}/uranus-worker:${VERSION}"
+    if remote_tag_exists "${remote}"; then
+        echo "[openclaw] ${VERSION} already exists remotely, skipping."
+        return 0
+    fi
+    echo "[openclaw] Building..."
+    docker build \
+        ${DOCKER_BUILD_ARGS} \
+        --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
+        -t hiclaw/openclaw-base:${VERSION} \
+        ./openclaw-base
+    docker build \
+        ${DOCKER_BUILD_ARGS} \
+        --build-context shared=./shared/lib \
+        --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
+        --build-arg OPENCLAW_BASE_IMAGE=hiclaw/openclaw-base:${VERSION} \
+        -t hiclaw/hiclaw-worker:${VERSION} \
+        ./worker
+    tag_and_push "hiclaw/hiclaw-worker:${VERSION}" "${remote}"
+    echo "  done."
+}
 
-docker build \
-    ${DOCKER_BUILD_ARGS} \
-    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
-    --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
-    -f ./hiclaw-controller/Dockerfile.embedded \
-    -t hiclaw/hiclaw-embedded:${VERSION} \
-    .
+check_all() {
+    echo "Checking remote tags for ${VERSION}..."
+    for name in controller embedded hermes copaw openclaw; do
+        case "${name}" in
+            controller) img="uranus-controller" ;;
+            embedded)   img="uranus-embedded" ;;
+            hermes)     img="uranus-hermes-worker" ;;
+            copaw)      img="uranus-copaw-worker" ;;
+            openclaw)   img="uranus-worker" ;;
+        esac
+        local remote="docker.io/${DOCKER_NS}/${img}:${VERSION}"
+        if docker manifest inspect "${remote}" >/dev/null 2>&1; then
+            echo "  ${name}: exists"
+        else
+            echo "  ${name}: NEEDS BUILD"
+        fi
+    done
+}
 
-docker tag hiclaw/hiclaw-embedded:${VERSION} \
-    docker.io/${DOCKER_NS}/uranus-embedded:${VERSION}
-docker push docker.io/${DOCKER_NS}/uranus-embedded:${VERSION}
-
-echo "  ✓ embedded built & pushed"
-
-# ── Step 3: Build hermes-worker ──────────────────────────────────────────
-# Used as BOTH Manager (HICLAW_MANAGER_RUNTIME=hermes) and Worker.
-# Contains: hermes-agent v0.10.0, mcpvault, hermes-web-ui, mcporter,
-# skills CLI, MinIO client, hiclaw CLI, Matrix adapter shim.
-echo "[3/5] Building hermes-worker (Manager + Worker)..."
-
-docker build \
-    ${DOCKER_BUILD_ARGS} \
-    --build-context shared=./shared/lib \
-    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
-    --build-arg NODE_IMAGE="${NODE_IMAGE}" \
-    --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
-    -t hiclaw/hiclaw-hermes-worker:${VERSION} \
-    ./hermes
-
-docker tag hiclaw/hiclaw-hermes-worker:${VERSION} \
-    docker.io/${DOCKER_NS}/uranus-hermes-worker:${VERSION}
-docker push docker.io/${DOCKER_NS}/uranus-hermes-worker:${VERSION}
-
-echo "  ✓ hermes-worker built & pushed (includes hermes-web-ui)"
-
-# ── Step 4: Build copaw-worker ───────────────────────────────────────────
-# Python (AgentScope/QwenPaw) Worker runtime.
-# Contains: CoPaw, mcpvault, mcporter, skills CLI, ReMe (lazy-loaded).
-echo "[4/5] Building copaw-worker..."
-
-docker build \
-    ${DOCKER_BUILD_ARGS} \
-    --build-context shared=./shared/lib \
-    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
-    --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
-    -t hiclaw/hiclaw-copaw-worker:${VERSION} \
-    ./copaw
-
-docker tag hiclaw/hiclaw-copaw-worker:${VERSION} \
-    docker.io/${DOCKER_NS}/uranus-copaw-worker:${VERSION}
-docker push docker.io/${DOCKER_NS}/uranus-copaw-worker:${VERSION}
-
-echo "  ✓ copaw-worker built & pushed"
-
-# ── Step 5: Build openclaw-worker ────────────────────────────────────────
-# Node.js (OpenClaw) Worker runtime.
-# Requires openclaw-base as build dependency.
-echo "[5/5] Building openclaw-worker..."
-
-# Build openclaw-base first (shared base for OpenClaw runtime)
-docker build \
-    ${DOCKER_BUILD_ARGS} \
-    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
-    -t hiclaw/openclaw-base:${VERSION} \
-    ./openclaw-base
-
-docker build \
-    ${DOCKER_BUILD_ARGS} \
-    --build-context shared=./shared/lib \
-    --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
-    --build-arg OPENCLAW_BASE_IMAGE=hiclaw/openclaw-base:${VERSION} \
-    -t hiclaw/hiclaw-worker:${VERSION} \
-    ./worker
-
-docker tag hiclaw/hiclaw-worker:${VERSION} \
-    docker.io/${DOCKER_NS}/uranus-worker:${VERSION}
-docker push docker.io/${DOCKER_NS}/uranus-worker:${VERSION}
-
-echo "  ✓ openclaw-worker built & pushed"
-
-# ── Summary ──────────────────────────────────────────────────────────────
-echo ""
-echo "============================================"
-echo "  All images built and pushed!"
-echo "============================================"
-echo ""
-echo "Deploy with these environment variables:"
-echo ""
-cat <<EOF
-# ── Uranus Deployment Config ──
+print_summary() {
+    echo ""
+    echo "============================================"
+    echo "  Deploy config:"
+    echo "============================================"
+    cat <<EOF
 HICLAW_VERSION=${VERSION}
-
-# Infrastructure (embedded = Tuwunel + MinIO + Higress + Element + Controller)
 HICLAW_INSTALL_MANAGER_IMAGE=docker.io/${DOCKER_NS}/uranus-embedded:${VERSION}
-
-# Manager runtime: hermes (with Web UI on port 6060)
 HICLAW_MANAGER_RUNTIME=hermes
 HICLAW_INSTALL_HERMES_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-hermes-worker:${VERSION}
-
-# Worker images
 HICLAW_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-worker:${VERSION}
 HICLAW_COPAW_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-copaw-worker:${VERSION}
 HICLAW_HERMES_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-hermes-worker:${VERSION}
 EOF
+}
 
+# ── Main ─────────────────────────────────────────────────────────────────
+
+TARGETS=("$@")
+
+if [ "${#TARGETS[@]}" -eq 0 ]; then
+    TARGETS=(controller embedded hermes copaw openclaw)
+fi
+
+if [ "${TARGETS[0]}" = "--check" ]; then
+    check_all
+    exit 0
+fi
+
+echo "============================================"
+echo "  Uranus Build & Push"
+echo "  Namespace: ${DOCKER_NS}"
+echo "  Version:   ${VERSION}"
+echo "  Targets:   ${TARGETS[*]}"
+echo "  Force:     ${FORCE_BUILD}"
+echo "============================================"
 echo ""
-echo "Quick install (non-interactive):"
-echo ""
-cat <<'INSTALLEOF'
-HICLAW_NON_INTERACTIVE=1 \
-HICLAW_MANAGER_RUNTIME=hermes \
-HICLAW_LLM_API_KEY="sk-xxx" \
-HICLAW_INSTALL_MANAGER_IMAGE=docker.io/${DOCKER_NS}/uranus-embedded:${VERSION} \
-HICLAW_INSTALL_HERMES_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-hermes-worker:${VERSION} \
-bash install/hiclaw-install.sh
-INSTALLEOF
+
+for target in "${TARGETS[@]}"; do
+    case "${target}" in
+        controller) build_controller ;;
+        embedded)   build_embedded ;;
+        hermes)     build_hermes ;;
+        copaw)      build_copaw ;;
+        openclaw)   build_openclaw ;;
+        *)
+            echo "Unknown target: ${target}"
+            echo "Available: controller, embedded, hermes, copaw, openclaw"
+            exit 1
+            ;;
+    esac
+done
+
+print_summary
