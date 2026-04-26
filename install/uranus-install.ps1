@@ -35,10 +35,11 @@ if (-not $env:HICLAW_REGISTRY) {
 
 # Version
 if (-not $env:HICLAW_VERSION) {
-    try {
-        $shortHash = git -C "$ScriptDir\.." rev-parse --short HEAD 2>$null
+    $repoRoot = Split-Path -Parent $ScriptDir
+    $shortHash = & git -C $repoRoot rev-parse --short HEAD 2>$null
+    if ($LASTEXITCODE -eq 0 -and $shortHash) {
         $env:HICLAW_VERSION = "dev-$shortHash"
-    } catch {
+    } else {
         $env:HICLAW_VERSION = "latest"
     }
 }
@@ -77,4 +78,13 @@ Write-Host "============================================"
 Write-Host ""
 
 # ── Delegate to HiClaw installer ─────────────────────────────────────────
+# Force UTF-8 so Chinese text in hiclaw-install.ps1 renders correctly on
+# Windows PowerShell 5.1 (defaults to system locale, e.g., GBK).
+[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+if ($PSVersionTable.PSVersion.Major -le 5) {
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+    chcp 65001 | Out-Null
+}
+
 & "$ScriptDir\hiclaw-install.ps1" @PassThrough
