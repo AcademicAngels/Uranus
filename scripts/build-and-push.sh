@@ -1,7 +1,7 @@
 #!/bin/bash
 # Uranus Build & Push Script
 #
-# Builds and pushes Docker images for Hermes-as-Manager deployment.
+# Builds and pushes Docker images for OpenClaw Manager + Hermes Worker deployment.
 # Supports selective builds, remote tag checks, and China mirror proxies.
 #
 # Usage:
@@ -10,7 +10,7 @@
 #   bash scripts/build-and-push.sh copaw hermes # build copaw + hermes
 #   bash scripts/build-and-push.sh --check      # check which images need rebuild
 #
-# Available targets: controller, embedded, hermes, copaw, openclaw
+# Available targets: controller, manager, manager-copaw, embedded, hermes, copaw, openclaw
 #
 # Environment variables:
 #   DOCKER_NS              DockerHub namespace (default: tingchaopavilion)
@@ -53,6 +53,15 @@ tag_and_push() {
     fi
 }
 
+controller_image_ref() {
+    local local_ref="hiclaw/hiclaw-controller:${VERSION}"
+    if docker image inspect "${local_ref}" >/dev/null 2>&1; then
+        echo "${local_ref}"
+    else
+        echo "docker.io/${DOCKER_NS}/uranus-controller:${VERSION}"
+    fi
+}
+
 build_controller() {
     local remote="docker.io/${DOCKER_NS}/uranus-controller:${VERSION}"
     if remote_tag_exists "${remote}"; then
@@ -82,11 +91,50 @@ build_embedded() {
     docker build \
         ${DOCKER_BUILD_ARGS} \
         --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
-        --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
+        --build-arg HICLAW_CONTROLLER_IMAGE="$(controller_image_ref)" \
         -f ./hiclaw-controller/Dockerfile.embedded \
         -t hiclaw/hiclaw-embedded:${VERSION} \
         .
     tag_and_push "hiclaw/hiclaw-embedded:${VERSION}" "${remote}"
+    echo "  done."
+}
+
+build_manager() {
+    local remote="docker.io/${DOCKER_NS}/uranus-manager:${VERSION}"
+    if remote_tag_exists "${remote}"; then
+        echo "[manager] ${VERSION} already exists remotely, skipping."
+        return 0
+    fi
+    echo "[manager] Building OpenClaw Manager..."
+    docker build \
+        ${DOCKER_BUILD_ARGS} \
+        --build-context shared=./shared/lib \
+        --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
+        --build-arg BUILTIN_VERSION="${VERSION}" \
+        --build-arg HICLAW_CONTROLLER_IMAGE="$(controller_image_ref)" \
+        -f ./manager/Dockerfile \
+        -t hiclaw/hiclaw-manager:${VERSION} \
+        .
+    tag_and_push "hiclaw/hiclaw-manager:${VERSION}" "${remote}"
+    echo "  done."
+}
+
+build_manager_copaw() {
+    local remote="docker.io/${DOCKER_NS}/uranus-manager-copaw:${VERSION}"
+    if remote_tag_exists "${remote}"; then
+        echo "[manager-copaw] ${VERSION} already exists remotely, skipping."
+        return 0
+    fi
+    echo "[manager-copaw] Building CoPaw Manager..."
+    docker build \
+        ${DOCKER_BUILD_ARGS} \
+        --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
+        --build-arg BUILTIN_VERSION="${VERSION}" \
+        --build-arg HICLAW_CONTROLLER_IMAGE="$(controller_image_ref)" \
+        -f ./manager/Dockerfile.copaw \
+        -t hiclaw/hiclaw-manager-copaw:${VERSION} \
+        .
+    tag_and_push "hiclaw/hiclaw-manager-copaw:${VERSION}" "${remote}"
     echo "  done."
 }
 
@@ -102,7 +150,7 @@ build_hermes() {
         --build-context shared=./shared/lib \
         --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
         --build-arg NODE_IMAGE="${NODE_IMAGE}" \
-        --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
+        --build-arg HICLAW_CONTROLLER_IMAGE="$(controller_image_ref)" \
         -t hiclaw/hiclaw-hermes-worker:${VERSION} \
         ./hermes
     tag_and_push "hiclaw/hiclaw-hermes-worker:${VERSION}" "${remote}"
@@ -120,7 +168,7 @@ build_copaw() {
         ${DOCKER_BUILD_ARGS} \
         --build-context shared=./shared/lib \
         --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
-        --build-arg HICLAW_CONTROLLER_IMAGE=hiclaw/hiclaw-controller:${VERSION} \
+        --build-arg HICLAW_CONTROLLER_IMAGE="$(controller_image_ref)" \
         -t hiclaw/hiclaw-copaw-worker:${VERSION} \
         ./copaw
     tag_and_push "hiclaw/hiclaw-copaw-worker:${VERSION}" "${remote}"
@@ -144,6 +192,7 @@ build_openclaw() {
         --build-context shared=./shared/lib \
         --build-arg HIGRESS_REGISTRY="${HIGRESS_REGISTRY}" \
         --build-arg OPENCLAW_BASE_IMAGE=hiclaw/openclaw-base:${VERSION} \
+        --build-arg HICLAW_CONTROLLER_IMAGE="$(controller_image_ref)" \
         -t hiclaw/hiclaw-worker:${VERSION} \
         ./worker
     tag_and_push "hiclaw/hiclaw-worker:${VERSION}" "${remote}"
@@ -152,13 +201,15 @@ build_openclaw() {
 
 check_all() {
     echo "Checking remote tags for ${VERSION}..."
-    for name in controller embedded hermes copaw openclaw; do
+    for name in controller manager manager-copaw embedded hermes copaw openclaw; do
         case "${name}" in
-            controller) img="uranus-controller" ;;
-            embedded)   img="uranus-embedded" ;;
-            hermes)     img="uranus-hermes-worker" ;;
-            copaw)      img="uranus-copaw-worker" ;;
-            openclaw)   img="uranus-worker" ;;
+            controller)    img="uranus-controller" ;;
+            manager)       img="uranus-manager" ;;
+            manager-copaw) img="uranus-manager-copaw" ;;
+            embedded)      img="uranus-embedded" ;;
+            hermes)        img="uranus-hermes-worker" ;;
+            copaw)         img="uranus-copaw-worker" ;;
+            openclaw)      img="uranus-worker" ;;
         esac
         local remote="docker.io/${DOCKER_NS}/${img}:${VERSION}"
         if docker manifest inspect "${remote}" >/dev/null 2>&1; then
@@ -176,12 +227,15 @@ print_summary() {
     echo "============================================"
     cat <<EOF
 HICLAW_VERSION=${VERSION}
-HICLAW_INSTALL_MANAGER_IMAGE=docker.io/${DOCKER_NS}/uranus-embedded:${VERSION}
-HICLAW_MANAGER_RUNTIME=hermes
+HICLAW_INSTALL_EMBEDDED_IMAGE=docker.io/${DOCKER_NS}/uranus-embedded:${VERSION}
+HICLAW_INSTALL_CONTROLLER_IMAGE=docker.io/${DOCKER_NS}/uranus-controller:${VERSION}
+HICLAW_INSTALL_MANAGER_IMAGE=docker.io/${DOCKER_NS}/uranus-manager:${VERSION}
+HICLAW_INSTALL_MANAGER_COPAW_IMAGE=docker.io/${DOCKER_NS}/uranus-manager-copaw:${VERSION}
+HICLAW_MANAGER_RUNTIME=openclaw
+HICLAW_DEFAULT_WORKER_RUNTIME=hermes
 HICLAW_INSTALL_HERMES_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-hermes-worker:${VERSION}
-HICLAW_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-worker:${VERSION}
-HICLAW_COPAW_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-copaw-worker:${VERSION}
-HICLAW_HERMES_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-hermes-worker:${VERSION}
+HICLAW_INSTALL_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-worker:${VERSION}
+HICLAW_INSTALL_COPAW_WORKER_IMAGE=docker.io/${DOCKER_NS}/uranus-copaw-worker:${VERSION}
 EOF
 }
 
@@ -190,7 +244,7 @@ EOF
 TARGETS=("$@")
 
 if [ "${#TARGETS[@]}" -eq 0 ]; then
-    TARGETS=(controller embedded hermes copaw openclaw)
+    TARGETS=(controller manager manager-copaw embedded hermes copaw openclaw)
 fi
 
 if [ "${TARGETS[0]}" = "--check" ]; then
@@ -210,13 +264,15 @@ echo ""
 for target in "${TARGETS[@]}"; do
     case "${target}" in
         controller) build_controller ;;
+        manager)    build_manager ;;
+        manager-copaw) build_manager_copaw ;;
         embedded)   build_embedded ;;
         hermes)     build_hermes ;;
         copaw)      build_copaw ;;
         openclaw)   build_openclaw ;;
         *)
             echo "Unknown target: ${target}"
-            echo "Available: controller, embedded, hermes, copaw, openclaw"
+            echo "Available: controller, manager, manager-copaw, embedded, hermes, copaw, openclaw"
             exit 1
             ;;
     esac
