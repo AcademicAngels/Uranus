@@ -59,7 +59,21 @@ param(
 # Configuration
 # ============================================================
 
-$script:HICLAW_VERSION = if ($env:HICLAW_VERSION) { $env:HICLAW_VERSION } else { "latest" }
+# Uranus: auto-detect version from git commit hash
+if ($env:HICLAW_VERSION) {
+    $script:HICLAW_VERSION = $env:HICLAW_VERSION
+} else {
+    try {
+        $gitHash = (& git rev-parse --short HEAD 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $gitHash) {
+            $script:HICLAW_VERSION = "dev-$($gitHash.Trim())"
+        } else {
+            $script:HICLAW_VERSION = "latest"
+        }
+    } catch {
+        $script:HICLAW_VERSION = "latest"
+    }
+}
 $script:HICLAW_NON_INTERACTIVE = if ($env:HICLAW_NON_INTERACTIVE -eq "1" -or $NonInteractive) { $true } else { $false }
 $script:HICLAW_MOUNT_SOCKET = if ($env:HICLAW_MOUNT_SOCKET -eq "0") { $false } else { $true }
 $script:HICLAW_ENV_FILE = if ($EnvFile) { $EnvFile } elseif ($env:HICLAW_ENV_FILE) { $env:HICLAW_ENV_FILE } else { "$env:USERPROFILE\hiclaw-manager.env" }
@@ -861,6 +875,9 @@ HICLAW_MODEL_VISION=$($Config.MODEL_VISION)
 
 # Embedding model (empty = disabled, default: text-embedding-v4)
 HICLAW_EMBEDDING_MODEL=$($Config.EMBEDDING_MODEL)
+
+# Uranus: Shared vault path
+HICLAW_VAULT_PATH=$($Config.VAULT_PATH)
 
 # Admin
 HICLAW_ADMIN_USER=$($Config.ADMIN_USER)
@@ -2245,6 +2262,12 @@ function Install-Manager {
         $script:config.PORT_CONSOLE = if ($env:HICLAW_PORT_CONSOLE) { $env:HICLAW_PORT_CONSOLE } else { "18001" }
         $script:config.PORT_ELEMENT_WEB = if ($env:HICLAW_PORT_ELEMENT_WEB) { $env:HICLAW_PORT_ELEMENT_WEB } else { "18088" }
         $script:config.PORT_MANAGER_CONSOLE = if ($env:HICLAW_PORT_MANAGER_CONSOLE) { $env:HICLAW_PORT_MANAGER_CONSOLE } else { "18888" }
+        # Uranus: hermes-web-ui port
+        $script:config.PORT_WEBUI = if ($env:HICLAW_WEBUI_PORT) { $env:HICLAW_WEBUI_PORT } else { "6060" }
+    }
+    # Uranus: shared vault path for Obsidian knowledge base
+    if (-not $script:config.VAULT_PATH) {
+        $script:config.VAULT_PATH = if ($env:HICLAW_VAULT_PATH) { $env:HICLAW_VAULT_PATH } else { "shared/vault" }
     }
     if (-not $script:config.MATRIX_DOMAIN) {
         $script:config.MATRIX_DOMAIN = if ($env:HICLAW_MATRIX_DOMAIN) { $env:HICLAW_MATRIX_DOMAIN } else { "matrix-local.hiclaw.io:$($script:config.PORT_GATEWAY)" }
@@ -2564,6 +2587,8 @@ function Install-Manager {
         if ($config.EMBEDDING_MODEL) {
             $ctrlArgs += @("-e", "HICLAW_EMBEDDING_MODEL=$($config.EMBEDDING_MODEL)")
         }
+        # Uranus: shared vault path for Obsidian knowledge base
+        $ctrlArgs += @("-e", "HICLAW_VAULT_PATH=$($config.VAULT_PATH)")
         if ($config.OPENAI_BASE_URL) {
             $ctrlArgs += @("-e", "HICLAW_OPENAI_BASE_URL=$($config.OPENAI_BASE_URL)")
         }
@@ -2589,6 +2614,8 @@ function Install-Manager {
         $ctrlArgs += @("-p", "${portPrefix}$($config.PORT_GATEWAY):8080")
         $ctrlArgs += @("-p", "${portPrefix}$($config.PORT_CONSOLE):8001")
         $ctrlArgs += @("-p", "${portPrefix}$($config.PORT_ELEMENT_WEB):8088")
+        # Uranus: expose hermes-web-ui port for agent config/monitoring
+        $ctrlArgs += @("-p", "${portPrefix}$($config.PORT_WEBUI):6060")
 
         $ctrlArgs += @("--restart", "unless-stopped")
         $ctrlArgs += $script:EMBEDDED_IMAGE
@@ -2751,6 +2778,12 @@ function Install-Manager {
     Write-Host "$($script:ESC)[33m  $(Get-Msg 'success.after_login')$($script:ESC)[0m"
     Write-Host "$($script:ESC)[33m  $(Get-Msg 'success.tell_it')$($script:ESC)[0m"
     Write-Host "$($script:ESC)[33m  $(Get-Msg 'success.manager_auto')$($script:ESC)[0m"
+    Write-Host "$($script:ESC)[33m                                                                                 $($script:ESC)[0m"
+    Write-Host "$($script:ESC)[33m  ---------------------------------------------------------------  $($script:ESC)[0m"
+    Write-Host "$($script:ESC)[33m  Uranus Services:$($script:ESC)[0m"
+    Write-Host "$($script:ESC)[1;36m    Hermes Web UI:  http://127.0.0.1:$($config.PORT_WEBUI)$($script:ESC)[0m"
+    Write-Host "$($script:ESC)[1;36m    Element Web:    http://127.0.0.1:$($config.PORT_ELEMENT_WEB)/#/login$($script:ESC)[0m"
+    Write-Host "$($script:ESC)[1;36m    Higress:        http://127.0.0.1:$($config.PORT_CONSOLE)$($script:ESC)[0m"
     Write-Host "$($script:ESC)[33m                                                                                 $($script:ESC)[0m"
     Write-Host "$($script:ESC)[33m  ---------------------------------------------------------------  $($script:ESC)[0m"
     Write-Host "$($script:ESC)[33m  $(Get-Msg 'success.mobile_title')$($script:ESC)[0m"

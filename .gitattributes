@@ -1,2 +1,2 @@
 *.sh text eol=lf
-*.ps1 text working-tree-encoding=UTF-8-BOM eol=crlf
+*.ps1 binary
