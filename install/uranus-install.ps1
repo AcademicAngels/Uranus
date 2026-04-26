@@ -1,4 +1,4 @@
-#!/usr/bin/env powershell
+﻿#!/usr/bin/env powershell
 # hiclaw-install.ps1 - One-click installation for HiClaw Manager and Worker on Windows
 # Requires PowerShell 7.0+ (recommended)
 #
