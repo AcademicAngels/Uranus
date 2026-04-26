@@ -35,12 +35,18 @@ if (-not $env:HICLAW_REGISTRY) {
 
 # Version
 if (-not $env:HICLAW_VERSION) {
-    $repoRoot = Split-Path -Parent $ScriptDir
-    $shortHash = & git -C $repoRoot rev-parse --short HEAD 2>$null
-    if ($LASTEXITCODE -eq 0 -and $shortHash) {
-        $env:HICLAW_VERSION = "dev-$shortHash"
-    } else {
+    Push-Location (Split-Path -Parent $ScriptDir)
+    try {
+        $shortHash = (& git rev-parse --short HEAD 2>$null).Trim()
+        if ($shortHash) {
+            $env:HICLAW_VERSION = "dev-$shortHash"
+        } else {
+            $env:HICLAW_VERSION = "latest"
+        }
+    } catch {
         $env:HICLAW_VERSION = "latest"
+    } finally {
+        Pop-Location
     }
 }
 
@@ -78,13 +84,13 @@ Write-Host "============================================"
 Write-Host ""
 
 # ── Delegate to HiClaw installer ─────────────────────────────────────────
-# Force UTF-8 so Chinese text in hiclaw-install.ps1 renders correctly on
-# Windows PowerShell 5.1 (defaults to system locale, e.g., GBK).
-[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-if ($PSVersionTable.PSVersion.Major -le 5) {
-    $OutputEncoding = [System.Text.Encoding]::UTF8
-    chcp 65001 | Out-Null
-}
-
-& "$ScriptDir\hiclaw-install.ps1" @PassThrough
+# PowerShell 5.1 parses .ps1 files using the system default encoding (e.g.,
+# GBK on Chinese Windows), which corrupts the Chinese strings in
+# hiclaw-install.ps1 (UTF-8 without BOM).  Neither chcp nor
+# [Console]::OutputEncoding changes the *parser* encoding.
+#
+# The fix (same approach as HiClaw's official install command): read the file
+# as UTF-8 bytes, decode to string, then execute via ScriptBlock::Create().
+$installerPath = Join-Path $ScriptDir "hiclaw-install.ps1"
+$utf8Content = [System.IO.File]::ReadAllText($installerPath, [System.Text.Encoding]::UTF8)
+& ([scriptblock]::Create($utf8Content)) @PassThrough
