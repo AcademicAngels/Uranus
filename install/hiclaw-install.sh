@@ -535,8 +535,10 @@ msg() {
         "manager_runtime.openclaw.en") text="OpenClaw" ;;
         "manager_runtime.copaw.zh") text="QwenPaw" ;;
         "manager_runtime.copaw.en") text="QwenPaw" ;;
-        "manager_runtime.choice.zh") text="请选择 [1/2]" ;;
-        "manager_runtime.choice.en") text="Enter choice [1/2]" ;;
+        "manager_runtime.hermes.zh") text="Hermes (推荐)" ;;
+        "manager_runtime.hermes.en") text="Hermes (recommended)" ;;
+        "manager_runtime.choice.zh") text="请选择 [1/2/3]" ;;
+        "manager_runtime.choice.en") text="Enter choice [1/2/3]" ;;
         "manager_runtime.selected.zh") text="Manager 运行时: %s" ;;
         "manager_runtime.selected.en") text="Manager runtime: %s" ;;
         "manager_runtime.title_short.zh") text="Manager 运行时" ;;
@@ -2012,6 +2014,7 @@ step_manager_runtime() {
     echo ""
     echo "  1) $(msg manager_runtime.openclaw)"
     echo "  2) $(msg manager_runtime.copaw)"
+    echo "  3) $(msg manager_runtime.hermes)"
     echo ""
     if [ "${HICLAW_NON_INTERACTIVE}" = "1" ]; then
         HICLAW_MANAGER_RUNTIME="${HICLAW_MANAGER_RUNTIME:-openclaw}"
@@ -2023,6 +2026,7 @@ step_manager_runtime() {
         if [ -n "${_runtime_choice}" ]; then
             case "${_runtime_choice}" in
                 2) HICLAW_MANAGER_RUNTIME="copaw" ;;
+                3) HICLAW_MANAGER_RUNTIME="hermes" ;;
                 *) HICLAW_MANAGER_RUNTIME="openclaw" ;;
             esac
         fi
@@ -2033,6 +2037,7 @@ step_manager_runtime() {
         _runtime_choice="${_runtime_choice:-1}"
         case "${_runtime_choice}" in
             2) HICLAW_MANAGER_RUNTIME="copaw" ;;
+            3) HICLAW_MANAGER_RUNTIME="hermes" ;;
             *) HICLAW_MANAGER_RUNTIME="openclaw" ;;
         esac
     fi
