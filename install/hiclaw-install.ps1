@@ -391,8 +391,7 @@ $script:Messages = @{
     "manager_runtime.title" = @{ zh = "--- Manager 运行时 ---"; en = "--- Manager Runtime ---" }
     "manager_runtime.openclaw" = @{ zh = "OpenClaw"; en = "OpenClaw" }
     "manager_runtime.copaw" = @{ zh = "QwenPaw"; en = "QwenPaw" }
-    "manager_runtime.hermes" = @{ zh = "Hermes (推荐)"; en = "Hermes (recommended)" }
-    "manager_runtime.choice" = @{ zh = "请选择 [1/2/3]"; en = "Enter choice [1/2/3]" }
+    "manager_runtime.choice" = @{ zh = "请选择 [1/2]"; en = "Enter choice [1/2]" }
     "manager_runtime.selected" = @{ zh = "Manager 运行时: {0}"; en = "Manager runtime: {0}" }
     "manager_runtime.title_short" = @{ zh = "Manager 运行时"; en = "Manager Runtime" }
 
@@ -1883,7 +1882,6 @@ function Step-ManagerRuntime {
     Write-Host ""
     Write-Host "  1) $(Get-Msg 'manager_runtime.openclaw')"
     Write-Host "  2) $(Get-Msg 'manager_runtime.copaw')"
-    Write-Host "  3) $(Get-Msg 'manager_runtime.hermes')"
     Write-Host ""
 
     if ($script:HICLAW_NON_INTERACTIVE) {
@@ -1895,7 +1893,6 @@ function Step-ManagerRuntime {
         if ($mrChoice) {
             $script:config.MANAGER_RUNTIME = switch ($mrChoice) {
                 "2" { "copaw" }
-                "3" { "hermes" }
                 default { "openclaw" }
             }
         } else {
@@ -1909,9 +1906,12 @@ function Step-ManagerRuntime {
         $mrChoice = if ($mrChoice) { $mrChoice } else { "1" }
         $script:config.MANAGER_RUNTIME = switch ($mrChoice) {
             "2" { "copaw" }
-            "3" { "hermes" }
             default { "openclaw" }
         }
+    }
+    if ($script:config.MANAGER_RUNTIME -notin @("openclaw", "copaw")) {
+        Write-Log "Unsupported Manager runtime '$($script:config.MANAGER_RUNTIME)', using openclaw"
+        $script:config.MANAGER_RUNTIME = "openclaw"
     }
     Write-Log (Get-Msg "manager_runtime.selected" -f $script:config.MANAGER_RUNTIME)
 }
@@ -2249,6 +2249,10 @@ function Install-Manager {
     }
     if (-not $script:config.MANAGER_RUNTIME) {
         $script:config.MANAGER_RUNTIME = if ($env:HICLAW_MANAGER_RUNTIME) { $env:HICLAW_MANAGER_RUNTIME } else { "openclaw" }
+    }
+    if ($script:config.MANAGER_RUNTIME -notin @("openclaw", "copaw")) {
+        Write-Log "Unsupported Manager runtime '$($script:config.MANAGER_RUNTIME)', using openclaw"
+        $script:config.MANAGER_RUNTIME = "openclaw"
     }
     if (-not $script:config.PORT_GATEWAY) {
         $script:config.PORT_GATEWAY = if ($env:HICLAW_PORT_GATEWAY) { $env:HICLAW_PORT_GATEWAY } else { "18080" }

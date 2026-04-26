@@ -203,7 +203,7 @@ controller:
 manager:
   enabled: true                 # create Manager CR during cluster initialization
   model: ""                     # LLM model; defaults to credentials.defaultModel
-  runtime: "openclaw"           # openclaw | copaw | hermes
+  runtime: "openclaw"           # openclaw | copaw
   image:
     repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/hiclaw-manager
     tag: ""                     # defaults to global.imageTag

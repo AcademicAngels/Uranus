@@ -193,7 +193,7 @@ helm install hiclaw higress.io/hiclaw \
 | `credentials.llmProvider` | 可选 | LLM 服务商名，默认 `openai-compat` |
 | `credentials.defaultModel` | 可选 | 默认模型，默认 `gpt-5.4` |
 | `credentials.llmBaseUrl` | 可选 | OpenAI 兼容的 Base URL（例如 `https://api.deepseek.com/v1`）。使用官方 OpenAI API 时留空 |
-| `manager.runtime` | 可选 | Manager Agent 运行时：`openclaw`（默认）、`copaw` 或 `hermes` |
+| `manager.runtime` | 可选 | Manager Agent 运行时：`openclaw`（默认）或 `copaw` |
 | `worker.defaultRuntime` | 可选 | Worker 默认运行时：`openclaw`（默认）、`copaw` 或 `hermes` |
 
 <details>

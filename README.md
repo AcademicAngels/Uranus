@@ -168,7 +168,7 @@ helm install hiclaw higress.io/hiclaw \
 | `credentials.llmProvider` | no | LLM provider name, defaults to `openai-compat` |
 | `credentials.defaultModel` | no | Default model, defaults to `gpt-5.4` |
 | `credentials.llmBaseUrl` | no | OpenAI-compatible base URL (e.g. `https://api.deepseek.com/v1`). Leave empty for official OpenAI API |
-| `manager.runtime` | no | Manager agent runtime: `openclaw` (default), `copaw`, or `hermes` |
+| `manager.runtime` | no | Manager agent runtime: `openclaw` (default) or `copaw` |
 | `worker.defaultRuntime` | no | Default Worker runtime: `openclaw` (default), `copaw`, or `hermes` |
 
 <details>

@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env powershell
-# hiclaw-install.ps1 - One-click installation for HiClaw Manager and Worker on Windows
+# uranus-install.ps1 - One-click installation for Uranus Manager and Worker on Windows
 # Requires PowerShell 7.0+ (recommended)
 #
 # Usage:
@@ -407,8 +407,7 @@ $script:Messages = @{
     "manager_runtime.title" = @{ zh = "--- Manager 运行时 ---"; en = "--- Manager Runtime ---" }
     "manager_runtime.openclaw" = @{ zh = "OpenClaw"; en = "OpenClaw" }
     "manager_runtime.copaw" = @{ zh = "QwenPaw"; en = "QwenPaw" }
-    "manager_runtime.hermes" = @{ zh = "Hermes (推荐)"; en = "Hermes (recommended)" }
-    "manager_runtime.choice" = @{ zh = "请选择 [1/2/3]"; en = "Enter choice [1/2/3]" }
+    "manager_runtime.choice" = @{ zh = "请选择 [1/2]"; en = "Enter choice [1/2]" }
     "manager_runtime.selected" = @{ zh = "Manager 运行时: {0}"; en = "Manager runtime: {0}" }
     "manager_runtime.title_short" = @{ zh = "Manager 运行时"; en = "Manager Runtime" }
 
@@ -803,7 +802,7 @@ function Wait-ManagerReady {
     $elapsed = 0
     Write-Log (Get-Msg "install.wait_ready" -f $Timeout)
 
-    $runtime = if ($script:config.MANAGER_RUNTIME) { $script:config.MANAGER_RUNTIME } else { "hermes" }
+    $runtime = if ($script:config.MANAGER_RUNTIME) { $script:config.MANAGER_RUNTIME } else { "openclaw" }
 
     while ($elapsed -lt $Timeout) {
         try {
@@ -1868,7 +1867,7 @@ function Step-Runtime {
     Write-Host ""
 
     if ($script:HICLAW_NON_INTERACTIVE) {
-        $script:config.DEFAULT_WORKER_RUNTIME = if ($env:HICLAW_DEFAULT_WORKER_RUNTIME) { $env:HICLAW_DEFAULT_WORKER_RUNTIME } else { "openclaw" }
+        $script:config.DEFAULT_WORKER_RUNTIME = if ($env:HICLAW_DEFAULT_WORKER_RUNTIME) { $env:HICLAW_DEFAULT_WORKER_RUNTIME } else { "hermes" }
     } elseif ($script:HICLAW_UPGRADE -and $env:HICLAW_DEFAULT_WORKER_RUNTIME) {
         Write-Log (Get-Msg "prompt.upgrade_keep" -f (Get-Msg "worker_runtime.title_short"), $env:HICLAW_DEFAULT_WORKER_RUNTIME)
         $rtChoice = Read-Host (Get-Msg "worker_runtime.choice")
@@ -1902,11 +1901,10 @@ function Step-ManagerRuntime {
     Write-Host ""
     Write-Host "  1) $(Get-Msg 'manager_runtime.openclaw')"
     Write-Host "  2) $(Get-Msg 'manager_runtime.copaw')"
-    Write-Host "  3) $(Get-Msg 'manager_runtime.hermes')"
     Write-Host ""
 
     if ($script:HICLAW_NON_INTERACTIVE) {
-        $script:config.MANAGER_RUNTIME = if ($env:HICLAW_MANAGER_RUNTIME) { $env:HICLAW_MANAGER_RUNTIME } else { "hermes" }
+        $script:config.MANAGER_RUNTIME = if ($env:HICLAW_MANAGER_RUNTIME) { $env:HICLAW_MANAGER_RUNTIME } else { "openclaw" }
     } elseif ($script:HICLAW_UPGRADE -and $env:HICLAW_MANAGER_RUNTIME) {
         Write-Log (Get-Msg "prompt.upgrade_keep" -f (Get-Msg "manager_runtime.title_short"), $env:HICLAW_MANAGER_RUNTIME)
         $mrChoice = Read-Host (Get-Msg "manager_runtime.choice")
@@ -1914,7 +1912,6 @@ function Step-ManagerRuntime {
         if ($mrChoice) {
             $script:config.MANAGER_RUNTIME = switch ($mrChoice) {
                 "2" { "copaw" }
-                "3" { "hermes" }
                 default { "openclaw" }
             }
         } else {
@@ -1928,9 +1925,12 @@ function Step-ManagerRuntime {
         $mrChoice = if ($mrChoice) { $mrChoice } else { "1" }
         $script:config.MANAGER_RUNTIME = switch ($mrChoice) {
             "2" { "copaw" }
-            "3" { "hermes" }
             default { "openclaw" }
         }
+    }
+    if ($script:config.MANAGER_RUNTIME -notin @("openclaw", "copaw")) {
+        Write-Log "Unsupported Manager runtime '$($script:config.MANAGER_RUNTIME)', using openclaw"
+        $script:config.MANAGER_RUNTIME = "openclaw"
     }
     Write-Log (Get-Msg "manager_runtime.selected" -f $script:config.MANAGER_RUNTIME)
 }
@@ -2251,7 +2251,7 @@ function Install-Manager {
         Write-Log (Get-Msg "workspace.dir_label" -f $script:config.WORKSPACE_DIR)
     }
     if (-not $script:config.DEFAULT_WORKER_RUNTIME) {
-        $script:config.DEFAULT_WORKER_RUNTIME = if ($env:HICLAW_DEFAULT_WORKER_RUNTIME) { $env:HICLAW_DEFAULT_WORKER_RUNTIME } else { "openclaw" }
+        $script:config.DEFAULT_WORKER_RUNTIME = if ($env:HICLAW_DEFAULT_WORKER_RUNTIME) { $env:HICLAW_DEFAULT_WORKER_RUNTIME } else { "hermes" }
         Write-Log (Get-Msg "worker_runtime.selected" -f $script:config.DEFAULT_WORKER_RUNTIME)
     }
     if (-not $script:config.MATRIX_E2EE) {
@@ -2267,7 +2267,11 @@ function Install-Manager {
         $script:config.LOCAL_ONLY = if ($env:HICLAW_LOCAL_ONLY) { $env:HICLAW_LOCAL_ONLY } else { "1" }
     }
     if (-not $script:config.MANAGER_RUNTIME) {
-        $script:config.MANAGER_RUNTIME = if ($env:HICLAW_MANAGER_RUNTIME) { $env:HICLAW_MANAGER_RUNTIME } else { "hermes" }
+        $script:config.MANAGER_RUNTIME = if ($env:HICLAW_MANAGER_RUNTIME) { $env:HICLAW_MANAGER_RUNTIME } else { "openclaw" }
+    }
+    if ($script:config.MANAGER_RUNTIME -notin @("openclaw", "copaw")) {
+        Write-Log "Unsupported Manager runtime '$($script:config.MANAGER_RUNTIME)', using openclaw"
+        $script:config.MANAGER_RUNTIME = "openclaw"
     }
     if (-not $script:config.PORT_GATEWAY) {
         $script:config.PORT_GATEWAY = if ($env:HICLAW_PORT_GATEWAY) { $env:HICLAW_PORT_GATEWAY } else { "18080" }
@@ -2312,12 +2316,7 @@ function Install-Manager {
 
     # Manager image selection (used by both embedded — passed to controller via env —
     # and legacy — used directly as `docker run` target).
-    # Manager image selection: hermes uses hermes-worker image, copaw uses manager-copaw, else manager
-    $managerImage = switch ($config.MANAGER_RUNTIME) {
-        "hermes" { $script:HERMES_WORKER_IMAGE }
-        "copaw"  { $script:MANAGER_COPAW_IMAGE }
-        default  { $script:MANAGER_IMAGE }
-    }
+    $managerImage = if ($config.MANAGER_RUNTIME -eq "copaw") { $script:MANAGER_COPAW_IMAGE } else { $script:MANAGER_IMAGE }
     $portPrefix = if ($config.LOCAL_ONLY -eq "1") { "127.0.0.1:" } else { "" }
 
     # Ensure hiclaw-net Docker network exists. Used in both modes — the embedded

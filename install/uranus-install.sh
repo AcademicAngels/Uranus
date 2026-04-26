@@ -3,7 +3,8 @@
 #
 # Thin wrapper around hiclaw-install.sh that sets Uranus-specific defaults:
 #   - DockerHub registry: tingchaopavilion
-#   - Manager runtime: hermes (with Web UI on port 6060)
+#   - Manager runtime: openclaw (deterministic orchestration)
+#   - Default Worker runtime: hermes (autonomous coding + Web UI on port 6060)
 #   - All images point to tingchaopavilion/uranus-* on DockerHub
 #
 # Usage:
@@ -45,13 +46,17 @@ if [ -z "${HICLAW_VERSION:-}" ]; then
 fi
 export HICLAW_VERSION
 
-# Manager runtime: Hermes (not openclaw/copaw)
-export HICLAW_MANAGER_RUNTIME="${HICLAW_MANAGER_RUNTIME:-hermes}"
+# Runtime defaults: keep Manager deterministic, use Hermes for Worker execution.
+export HICLAW_MANAGER_RUNTIME="${HICLAW_MANAGER_RUNTIME:-openclaw}"
+export HICLAW_DEFAULT_WORKER_RUNTIME="${HICLAW_DEFAULT_WORKER_RUNTIME:-hermes}"
 
 # Image overrides: point to tingchaopavilion/uranus-* naming convention
 _REG="${HICLAW_REGISTRY}"
 _VER="${HICLAW_VERSION}"
 export HICLAW_INSTALL_EMBEDDED_IMAGE="${HICLAW_INSTALL_EMBEDDED_IMAGE:-${_REG}/uranus-embedded:${_VER}}"
+export HICLAW_INSTALL_CONTROLLER_IMAGE="${HICLAW_INSTALL_CONTROLLER_IMAGE:-${_REG}/uranus-controller:${_VER}}"
+export HICLAW_INSTALL_MANAGER_IMAGE="${HICLAW_INSTALL_MANAGER_IMAGE:-${_REG}/uranus-manager:${_VER}}"
+export HICLAW_INSTALL_MANAGER_COPAW_IMAGE="${HICLAW_INSTALL_MANAGER_COPAW_IMAGE:-${_REG}/uranus-manager-copaw:${_VER}}"
 export HICLAW_INSTALL_HERMES_WORKER_IMAGE="${HICLAW_INSTALL_HERMES_WORKER_IMAGE:-${_REG}/uranus-hermes-worker:${_VER}}"
 export HICLAW_INSTALL_WORKER_IMAGE="${HICLAW_INSTALL_WORKER_IMAGE:-${_REG}/uranus-worker:${_VER}}"
 export HICLAW_INSTALL_COPAW_WORKER_IMAGE="${HICLAW_INSTALL_COPAW_WORKER_IMAGE:-${_REG}/uranus-copaw-worker:${_VER}}"
@@ -62,6 +67,7 @@ echo "  Uranus Installer"
 echo "  Registry:  ${_REG}"
 echo "  Version:   ${_VER}"
 echo "  Manager:   ${HICLAW_MANAGER_RUNTIME}"
+echo "  Worker:    ${HICLAW_DEFAULT_WORKER_RUNTIME}"
 echo "  Embedded:  ${HICLAW_INSTALL_EMBEDDED_IMAGE}"
 echo "  Hermes:    ${HICLAW_INSTALL_HERMES_WORKER_IMAGE}"
 echo "============================================"
