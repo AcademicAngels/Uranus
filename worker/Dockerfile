@@ -60,6 +60,7 @@ COPY --from=shared . /opt/hiclaw/scripts/lib/
 
 # mc wrapper: auto-refreshes STS credentials before every mc invocation (no-op in local mode)
 RUN chmod +x /opt/hiclaw/scripts/lib/mc-wrapper.sh && \
+    sed -i 's/\r$//' /opt/hiclaw/scripts/lib/*.sh 2>/dev/null || true && \
     ln -sf /opt/hiclaw/scripts/lib/mc-wrapper.sh /usr/local/bin/mc
 
 # Worker entrypoint and sync scripts
