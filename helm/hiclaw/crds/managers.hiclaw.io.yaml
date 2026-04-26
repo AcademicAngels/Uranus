@@ -21,7 +21,7 @@ spec:
                   description: LLM model ID (e.g. qwen3.5-plus, claude-sonnet-4-6)
                 runtime:
                   type: string
-                  enum: [openclaw, copaw]
+                  enum: [openclaw, copaw, hermes]
                   description: |
                     Manager runtime. When omitted the controller falls back to
                     HICLAW_MANAGER_RUNTIME (set at install time), and finally

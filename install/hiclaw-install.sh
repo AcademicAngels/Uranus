@@ -2709,7 +2709,7 @@ CREDEOF
             -e "HICLAW_DEFAULT_MODEL=${HICLAW_DEFAULT_MODEL}"
             -e "HICLAW_MANAGER_GATEWAY_KEY=${HICLAW_MANAGER_GATEWAY_KEY}"
             -e "HICLAW_MANAGER_RUNTIME=${HICLAW_MANAGER_RUNTIME:-openclaw}"
-            -e "HICLAW_MANAGER_IMAGE=$([ "${HICLAW_MANAGER_RUNTIME}" = "copaw" ] && echo "${MANAGER_COPAW_IMAGE}" || echo "${MANAGER_IMAGE}")"
+            -e "HICLAW_MANAGER_IMAGE=$(case "${HICLAW_MANAGER_RUNTIME}" in hermes) echo "${HERMES_WORKER_IMAGE}";; copaw) echo "${MANAGER_COPAW_IMAGE}";; *) echo "${MANAGER_IMAGE}";; esac)"
             -e "HICLAW_DEFAULT_WORKER_RUNTIME=${HICLAW_DEFAULT_WORKER_RUNTIME:-openclaw}"
             -e "HICLAW_WORKER_IMAGE=${WORKER_IMAGE}"
             -e "HICLAW_COPAW_WORKER_IMAGE=${COPAW_WORKER_IMAGE}"
@@ -2985,7 +2985,7 @@ CREDEOF
             ${WORKSPACE_MOUNT_ARGS} \
             ${HOST_SHARE_MOUNT_ARGS} \
             --restart unless-stopped \
-            "$([ "${HICLAW_MANAGER_RUNTIME}" = "copaw" ] && echo "${MANAGER_COPAW_IMAGE}" || echo "${MANAGER_IMAGE}")"
+            "$(case "${HICLAW_MANAGER_RUNTIME}" in hermes) echo "${HERMES_WORKER_IMAGE}";; copaw) echo "${MANAGER_COPAW_IMAGE}";; *) echo "${MANAGER_IMAGE}";; esac)"
 
         # Wait for Manager agent to be ready
         wait_manager_ready "hiclaw-manager"

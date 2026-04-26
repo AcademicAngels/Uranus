@@ -2312,7 +2312,12 @@ function Install-Manager {
 
     # Manager image selection (used by both embedded — passed to controller via env —
     # and legacy — used directly as `docker run` target).
-    $managerImage = if ($config.MANAGER_RUNTIME -eq "copaw") { $script:MANAGER_COPAW_IMAGE } else { $script:MANAGER_IMAGE }
+    # Manager image selection: hermes uses hermes-worker image, copaw uses manager-copaw, else manager
+    $managerImage = switch ($config.MANAGER_RUNTIME) {
+        "hermes" { $script:HERMES_WORKER_IMAGE }
+        "copaw"  { $script:MANAGER_COPAW_IMAGE }
+        default  { $script:MANAGER_IMAGE }
+    }
     $portPrefix = if ($config.LOCAL_ONLY -eq "1") { "127.0.0.1:" } else { "" }
 
     # Ensure hiclaw-net Docker network exists. Used in both modes — the embedded
