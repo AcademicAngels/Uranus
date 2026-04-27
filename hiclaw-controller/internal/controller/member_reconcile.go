@@ -415,17 +415,33 @@ func createMemberContainer(ctx context.Context, d MemberDeps, m MemberContext, s
 // Non-fatal: logs and returns current state unchanged on failure. The returned
 // slice overwrites state.ExposedPorts on success.
 func ReconcileMemberExpose(ctx context.Context, d MemberDeps, m MemberContext, state *MemberState) error {
-	if len(m.Spec.Expose) == 0 && len(m.CurrentExposedPorts) == 0 {
+	desiredExpose := effectiveExposePorts(d, m)
+	if len(desiredExpose) == 0 && len(m.CurrentExposedPorts) == 0 {
 		state.ExposedPorts = nil
 		return nil
 	}
-	exposedPorts, err := d.Provisioner.ReconcileExpose(ctx, m.Name, m.Spec.Expose, m.CurrentExposedPorts)
+	exposedPorts, err := d.Provisioner.ReconcileExpose(ctx, m.Name, desiredExpose, m.CurrentExposedPorts)
 	if err != nil {
 		log.FromContext(ctx).Error(err, "failed to reconcile exposed ports (non-fatal)", "name", m.Name)
 		state.ExposedPorts = m.CurrentExposedPorts
 		return nil
 	}
 	state.ExposedPorts = exposedPorts
+	return nil
+}
+
+func effectiveExposePorts(d MemberDeps, m MemberContext) []v1beta1.ExposePort {
+	if m.Spec.Expose != nil {
+		return m.Spec.Expose
+	}
+
+	runtime := m.Spec.Runtime
+	if runtime == "" {
+		runtime = d.DefaultRuntime
+	}
+	if runtime == backend.RuntimeHermes {
+		return []v1beta1.ExposePort{{Port: 6060}}
+	}
 	return nil
 }
 

@@ -9,3 +9,4 @@ Record image-affecting changes to `manager/`, `worker/`, `openclaw-base/` here b
 - fix(build): use local or Higress-registry controller/base images for Worker builds
 - fix(manager): restrict Manager runtime to OpenClaw or CoPaw and keep Hermes as Worker-only
 - feat(memory): support a separate OpenAI-compatible embedding provider for memory search
+- fix(controller): expose Hermes worker Web UI port 6060 by default
