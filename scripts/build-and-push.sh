@@ -295,7 +295,6 @@ export HICLAW_DEFAULT_WORKER_RUNTIME=hermes
 export HICLAW_INSTALL_HERMES_WORKER_IMAGE=$(${ref_fn} hermes)
 export HICLAW_INSTALL_WORKER_IMAGE=$(${ref_fn} openclaw)
 export HICLAW_INSTALL_COPAW_WORKER_IMAGE=$(${ref_fn} copaw)
-export HICLAW_VAULT_PATH=shared/vault
 EOF
 }
 
