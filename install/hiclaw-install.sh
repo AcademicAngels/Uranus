@@ -46,6 +46,9 @@
 #   HICLAW_PORT_MANAGER_CONSOLE  Host port for Manager console (default: 18888)
 #   HICLAW_WORKER_IDLE_TIMEOUT  Worker idle timeout in minutes (default: 720, i.e. 12 hours)
 #   HICLAW_VAULT_PATH         Shared vault path in MinIO (default: shared/vault)
+#   HICLAW_EMBEDDING_MODEL    Embedding model for memory search (empty = disabled)
+#   HICLAW_EMBEDDING_BASE_URL OpenAI-compatible embedding API base URL (optional)
+#   HICLAW_EMBEDDING_API_KEY  Embedding API key (defaults to HICLAW_LLM_API_KEY if unset)
 
 set -e
 
@@ -677,6 +680,12 @@ msg() {
         "llm.embedding.select.en") text="Select" ;;
         "llm.embedding.custom_prompt.zh") text="  Embedding 模型名称" ;;
         "llm.embedding.custom_prompt.en") text="  Embedding model name" ;;
+        "llm.embedding.base_url_prompt.zh") text="  Embedding API Base URL（OpenAI 兼容，留空复用 LLM 提供商）" ;;
+        "llm.embedding.base_url_prompt.en") text="  Embedding API Base URL (OpenAI-compatible, leave empty to reuse LLM provider)" ;;
+        "llm.embedding.apikey_prompt.zh") text="  Embedding API Key（留空复用 LLM API Key；本地服务可填任意值）" ;;
+        "llm.embedding.apikey_prompt.en") text="  Embedding API Key (leave empty to reuse LLM API Key; local servers may accept any value)" ;;
+        "llm.embedding.base_url_label.zh") text="Embedding API Base URL: %s" ;;
+        "llm.embedding.base_url_label.en") text="Embedding API Base URL: %s" ;;
         "llm.embedding.test.testing.zh") text="正在测试 Embedding API 联通性..." ;;
         "llm.embedding.test.testing.en") text="Testing Embedding API connectivity..." ;;
         "llm.embedding.test.ok.zh") text="✅ Embedding API 联通性测试通过" ;;
@@ -1409,6 +1418,7 @@ clear_step_vars() {
             unset HICLAW_LLM_PROVIDER HICLAW_DEFAULT_MODEL HICLAW_OPENAI_BASE_URL
             unset HICLAW_LLM_API_KEY HICLAW_MODEL_CONTEXT_WINDOW HICLAW_MODEL_MAX_TOKENS
             unset HICLAW_MODEL_REASONING HICLAW_MODEL_VISION
+            unset HICLAW_EMBEDDING_MODEL HICLAW_EMBEDDING_BASE_URL HICLAW_EMBEDDING_API_KEY
             ;;
         step_admin)   unset HICLAW_ADMIN_USER HICLAW_ADMIN_PASSWORD ;;
         step_network) unset HICLAW_LOCAL_ONLY ;;
@@ -1849,11 +1859,23 @@ step_llm() {
 
     if [ -n "${HICLAW_EMBEDDING_MODEL}" ]; then
         # Qwen provider uses dashscope directly; others use OPENAI_BASE_URL
-        local EMB_BASE_URL="${HICLAW_OPENAI_BASE_URL}"
+        local EMB_BASE_URL="${HICLAW_EMBEDDING_BASE_URL:-${HICLAW_OPENAI_BASE_URL}}"
         if [ "${HICLAW_LLM_PROVIDER}" = "qwen" ]; then
-            EMB_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+            EMB_BASE_URL="${HICLAW_EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
         fi
-        if ! test_embedding_connectivity "${EMB_BASE_URL}" "${HICLAW_LLM_API_KEY}" "${HICLAW_EMBEDDING_MODEL}"; then
+        if [ "${HICLAW_NON_INTERACTIVE}" != "1" ]; then
+            local _emb_base_input=""
+            read -e -p "$(msg llm.embedding.base_url_prompt): " _emb_base_input
+            if [ "${_emb_base_input}" = "b" ]; then STEP_RESULT="back"; return 0; fi
+            [ -n "${_emb_base_input}" ] && EMB_BASE_URL="${_emb_base_input}" && HICLAW_EMBEDDING_BASE_URL="${_emb_base_input}"
+            if [ -z "${HICLAW_EMBEDDING_API_KEY+x}" ]; then
+                read_secret "$(msg llm.embedding.apikey_prompt): "
+                [ -n "${_RS_RESULT}" ] && HICLAW_EMBEDDING_API_KEY="${_RS_RESULT}"
+            fi
+        fi
+        local EMB_API_KEY="${HICLAW_EMBEDDING_API_KEY:-${HICLAW_LLM_API_KEY}}"
+        log "$(msg llm.embedding.base_url_label "${EMB_BASE_URL}")"
+        if ! test_embedding_connectivity "${EMB_BASE_URL}" "${EMB_API_KEY}" "${HICLAW_EMBEDDING_MODEL}"; then
             HICLAW_EMBEDDING_MODEL=""
             log "$(msg llm.embedding.auto_disabled)"
         fi
@@ -2340,6 +2362,8 @@ HICLAW_MODEL_VISION=${HICLAW_MODEL_VISION:-}
 
 # Embedding model (empty = disabled, default: text-embedding-v4)
 HICLAW_EMBEDDING_MODEL=${HICLAW_EMBEDDING_MODEL}
+HICLAW_EMBEDDING_BASE_URL=${HICLAW_EMBEDDING_BASE_URL:-}
+HICLAW_EMBEDDING_API_KEY=${HICLAW_EMBEDDING_API_KEY:-}
 
 # Shared vault path (default: shared/vault)
 HICLAW_VAULT_PATH=${HICLAW_VAULT_PATH:-shared/vault}
@@ -2480,6 +2504,13 @@ EOF
     else
         log "$(msg host_share.not_exist "${HICLAW_HOST_SHARE_DIR}")"
         HOST_SHARE_MOUNT_ARGS="-v ${HICLAW_HOST_SHARE_DIR}:/host-share"
+    fi
+
+    # Let Linux Docker containers reach host-side local model servers through
+    # the same hostname Docker Desktop provides on macOS/Windows.
+    HOST_GATEWAY_ARGS=""
+    if [ "${DOCKER_CMD}" = "docker" ]; then
+        HOST_GATEWAY_ARGS="--add-host=host.docker.internal:host-gateway"
     fi
 
     # YOLO mode: pass through if set in environment (enables autonomous decisions)
@@ -2760,6 +2791,12 @@ CREDEOF
         if [ -n "${HICLAW_EMBEDDING_MODEL:-}" ]; then
             _ctrl_env_args+=(-e "HICLAW_EMBEDDING_MODEL=${HICLAW_EMBEDDING_MODEL}")
         fi
+        if [ -n "${HICLAW_EMBEDDING_BASE_URL:-}" ]; then
+            _ctrl_env_args+=(-e "HICLAW_EMBEDDING_BASE_URL=${HICLAW_EMBEDDING_BASE_URL}")
+        fi
+        if [ -n "${HICLAW_EMBEDDING_API_KEY:-}" ]; then
+            _ctrl_env_args+=(-e "HICLAW_EMBEDDING_API_KEY=${HICLAW_EMBEDDING_API_KEY}")
+        fi
 
         # Optional: shared vault path
         if [ -n "${HICLAW_VAULT_PATH:-}" ]; then
@@ -2783,6 +2820,7 @@ CREDEOF
             --network-alias matrix-local.hiclaw.io \
             --network-alias aigw-local.hiclaw.io \
             --network-alias fs-local.hiclaw.io \
+            ${HOST_GATEWAY_ARGS} \
             "${_ctrl_env_args[@]}" \
             -v "${CONTAINER_SOCK}:/var/run/docker.sock" \
             --security-opt label=disable \
@@ -2975,6 +3013,7 @@ CREDEOF
             ${YOLO_ARGS} \
             ${MATRIX_DEBUG_ARGS} \
             ${TZ_ARGS} \
+            ${HOST_GATEWAY_ARGS} \
             ${SOCKET_MOUNT_ARGS} \
             ${NETWORK_ARGS} \
             ${NETWORK_ALIAS_ARGS} \

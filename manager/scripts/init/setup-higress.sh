@@ -285,6 +285,63 @@ else
 fi
 
 # ============================================================
+# Optional Embedding Provider + Route
+#
+# When HICLAW_EMBEDDING_BASE_URL is set, memory search uses a dedicated
+# OpenAI-compatible embedding upstream. Agent configs still call the local
+# Higress gateway; the more-specific /v1/embeddings AI route sends those
+# requests to this provider.
+# ============================================================
+if [ -n "${HICLAW_EMBEDDING_MODEL:-}" ] && [ -n "${HICLAW_EMBEDDING_BASE_URL:-}" ]; then
+    EMBEDDING_PROVIDER="embedding-openai-compat"
+    EMBEDDING_API_KEY="${HICLAW_EMBEDDING_API_KEY:-${HICLAW_LLM_API_KEY:-}}"
+
+    EMB_PROTO="https"
+    EMB_PORT="443"
+    EMB_URL_STRIP="${HICLAW_EMBEDDING_BASE_URL#https://}"
+    EMB_URL_STRIP="${EMB_URL_STRIP#http://}"
+    echo "${HICLAW_EMBEDDING_BASE_URL}" | grep -q '^http://' && { EMB_PROTO="http"; EMB_PORT="80"; }
+    EMB_DOMAIN="${EMB_URL_STRIP%%/*}"
+    echo "${EMB_DOMAIN}" | grep -q ':' && { EMB_PORT="${EMB_DOMAIN##*:}"; EMB_DOMAIN="${EMB_DOMAIN%:*}"; }
+
+    existing_emb_svc=$(higress_get /v1/service-sources/"${EMBEDDING_PROVIDER}")
+    EMB_SVC_BODY='{"type":"dns","name":"'"${EMBEDDING_PROVIDER}"'","port":'"${EMB_PORT}"',"protocol":"'"${EMB_PROTO}"'","proxyName":"","domain":"'"${EMB_DOMAIN}"'"}'
+    if [ -n "${existing_emb_svc}" ]; then
+        higress_api PUT /v1/service-sources/"${EMBEDDING_PROVIDER}" "Updating embedding DNS service source" "${EMB_SVC_BODY}"
+    else
+        higress_api POST /v1/service-sources "Registering embedding DNS service source" "${EMB_SVC_BODY}"
+    fi
+
+    EMB_PROVIDER_BODY='{"type":"openai","name":"'"${EMBEDDING_PROVIDER}"'","tokens":["'"${EMBEDDING_API_KEY}"'"],"version":0,"protocol":"openai/v1","tokenFailoverConfig":{"enabled":false},"rawConfigs":{"openaiCustomUrl":"'"${HICLAW_EMBEDDING_BASE_URL}"'","openaiCustomServiceName":"'"${EMBEDDING_PROVIDER}"'.dns","openaiCustomServicePort":'"${EMB_PORT}"',"hiclawMode":true}}'
+    existing_emb_provider=$(higress_get /v1/ai/providers/"${EMBEDDING_PROVIDER}")
+    if [ -n "${existing_emb_provider}" ]; then
+        higress_api PUT /v1/ai/providers/"${EMBEDDING_PROVIDER}" "Updating embedding provider (${EMBEDDING_PROVIDER})" "${EMB_PROVIDER_BODY}"
+    else
+        higress_api POST /v1/ai/providers "Creating embedding provider (${EMBEDDING_PROVIDER})" "${EMB_PROVIDER_BODY}"
+    fi
+
+    EMB_ROUTE_BODY='{"name":"embedding-ai-route","domains":'"${AI_ROUTE_DOMAINS}"',"pathPredicate":{"matchType":"PRE","matchValue":"/v1/embeddings","caseSensitive":false},"upstreams":[{"provider":"'"${EMBEDDING_PROVIDER}"'","weight":100,"modelMapping":{}}],"authConfig":{"enabled":true,"allowedCredentialTypes":["key-auth"],"allowedConsumers":["manager"]}}'
+    existing_emb_route_resp=$(higress_get /v1/ai/routes/embedding-ai-route)
+    if [ -n "${existing_emb_route_resp}" ]; then
+        patched_emb=$(echo "${existing_emb_route_resp}" | jq --argjson domains "${AI_ROUTE_DOMAINS}" '
+            .data
+            | .upstreams[0].provider = "'"${EMBEDDING_PROVIDER}"'"
+            | .domains = $domains
+            | .pathPredicate.matchValue = "/v1/embeddings"
+            | .pathPredicate.matchType = "PRE"
+            | .pathPredicate.caseSensitive = false
+        ' 2>/dev/null)
+        if [ -n "${patched_emb}" ] && [ "${patched_emb}" != "null" ]; then
+            higress_api PUT /v1/ai/routes/embedding-ai-route "Updating embedding AI route (provider=${EMBEDDING_PROVIDER})" "${patched_emb}"
+        fi
+    else
+        higress_api POST /v1/ai/routes "Creating embedding AI route (provider=${EMBEDDING_PROVIDER})" "${EMB_ROUTE_BODY}"
+    fi
+elif [ -n "${HICLAW_EMBEDDING_MODEL:-}" ]; then
+    log "Embedding model configured without HICLAW_EMBEDDING_BASE_URL; /v1/embeddings will use the default AI route provider"
+fi
+
+# ============================================================
 # 6. GitHub MCP Server (idempotent via PUT)
 # ============================================================
 if [ -n "${HICLAW_GITHUB_TOKEN}" ]; then

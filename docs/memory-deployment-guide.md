@@ -15,6 +15,8 @@ The memory system is **enabled by default** in new deployments:
 |---------|---------|--------|
 | `HICLAW_VAULT_PATH` | `shared/vault` | Agents index this MinIO path for shared knowledge |
 | `HICLAW_EMBEDDING_MODEL` | `text-embedding-v4` | Semantic search via AI Gateway embedding |
+| `HICLAW_EMBEDDING_BASE_URL` | empty | Optional OpenAI-compatible embedding endpoint; empty means reuse the main LLM route |
+| `HICLAW_EMBEDDING_API_KEY` | empty | Optional embedding API key; empty falls back to `HICLAW_LLM_API_KEY` |
 
 No configuration is required for basic operation.
 
@@ -28,6 +30,16 @@ export HICLAW_VAULT_PATH="shared/vault"
 
 # Use a different embedding model
 export HICLAW_EMBEDDING_MODEL="text-embedding-v4"
+
+# Use a separate embedding service, for example LM Studio on the host
+export HICLAW_EMBEDDING_MODEL="text-embedding-qwen3-embedding-4b"
+export HICLAW_EMBEDDING_BASE_URL="http://host.docker.internal:1234/v1"
+export HICLAW_EMBEDDING_API_KEY="local-key"
+
+# Or use an OpenAI-compatible cloud embedding provider such as Z.ai
+export HICLAW_EMBEDDING_MODEL="<z-ai-embedding-model>"
+export HICLAW_EMBEDDING_BASE_URL="https://api.z.ai/api/paas/v4"
+export HICLAW_EMBEDDING_API_KEY="your-z-ai-api-key"
 
 # Disable semantic search (keyword-only fallback)
 export HICLAW_EMBEDDING_MODEL=""
@@ -67,6 +79,8 @@ To use Obsidian as a human-readable interface for agent knowledge:
 # Copy the scaffold to your Obsidian vault location
 cp -r shared/vault-scaffold/ ~/obsidian-hiclaw-vault/
 ```
+
+The Obsidian vault can live anywhere under your Linux home directory, for example `/home/alice/obsidian-uranus-vault`. Keep `HICLAW_VAULT_PATH` as a MinIO/agent path such as `shared/vault`; it is not a host filesystem path.
 
 ### 2. Open in Obsidian
 
@@ -186,7 +200,7 @@ If empty, re-run the installer or set it manually and restart.
 
 **Cause:** Vault path not under `shared/` prefix (which is auto-synced).
 
-**Fix:** Use the default `shared/vault` path, or ensure your custom path starts with `shared/`.
+**Fix:** Use the default `shared/vault` path, or ensure your custom path starts with `shared/`. Put the local Obsidian folder under `/home/...`, then mirror it into `shared/vault` with `mc mirror`.
 
 ### Embedding search returns no results
 
@@ -195,6 +209,7 @@ If empty, re-run the installer or set it manually and restart.
 **Fix:** Test connectivity:
 ```bash
 curl -X POST http://aigw-local.hiclaw.io:8080/v1/embeddings \
+  -H "Authorization: Bearer <manager-or-worker-gateway-key>" \
   -H "Content-Type: application/json" \
   -d '{"model": "text-embedding-v4", "input": "test"}'
 ```

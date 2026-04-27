@@ -39,12 +39,15 @@ type Config struct {
 	StorageProvider string // "minio"   | "oss"
 
 	// Gateway initialization (only consulted when GatewayProvider == "higress")
-	LLMProvider   string // e.g. "qwen", "openai"
-	LLMAPIKey     string
-	LLMApiURL     string // provider-specific base URL (optional)
-	OpenAIBaseURL string // custom base URL for openai-compat providers
-	TuwunelURL    string // internal Tuwunel URL, e.g. http://tuwunel:6167
-	ElementWebURL string // internal Element Web URL (optional)
+	LLMProvider      string // e.g. "qwen", "openai"
+	LLMAPIKey        string
+	LLMApiURL        string // provider-specific base URL (optional)
+	OpenAIBaseURL    string // custom base URL for openai-compat providers
+	EmbeddingModel   string // optional embedding model for memory search
+	EmbeddingBaseURL string // custom OpenAI-compatible embedding base URL
+	EmbeddingAPIKey  string // optional embedding API key; falls back to LLMAPIKey
+	TuwunelURL       string // internal Tuwunel URL, e.g. http://tuwunel:6167
+	ElementWebURL    string // internal Element Web URL (optional)
 }
 
 func (c Config) managesGatewayRoutes() bool {
@@ -387,6 +390,49 @@ func (i *Initializer) initGatewayRoutes(ctx context.Context) error {
 			Provider:   provider,
 		}); err != nil {
 			logger.Error(err, "failed to create AI route (non-fatal)")
+		}
+	}
+
+	if cfg.EmbeddingModel != "" && cfg.EmbeddingBaseURL != "" {
+		const embeddingProvider = "embedding-openai-compat"
+		host, port, err := parseHostPort(cfg.EmbeddingBaseURL)
+		if err != nil {
+			logger.Error(err, "failed to parse HICLAW_EMBEDDING_BASE_URL (non-fatal)")
+		} else {
+			proto := "https"
+			if strings.HasPrefix(cfg.EmbeddingBaseURL, "http://") {
+				proto = "http"
+			}
+			if err := i.Gateway.EnsureServiceSource(ctx, embeddingProvider, host, port, proto); err != nil {
+				logger.Error(err, "failed to register embedding service source (non-fatal)")
+			}
+			time.Sleep(2 * time.Second)
+			embeddingAPIKey := cfg.EmbeddingAPIKey
+			if embeddingAPIKey == "" {
+				embeddingAPIKey = cfg.LLMAPIKey
+			}
+			raw := map[string]interface{}{
+				"hiclawMode":              true,
+				"openaiCustomUrl":         cfg.EmbeddingBaseURL,
+				"openaiCustomServiceName": embeddingProvider + ".dns",
+				"openaiCustomServicePort": port,
+			}
+			if err := i.Gateway.EnsureAIProvider(ctx, gateway.AIProviderRequest{
+				Name:     embeddingProvider,
+				Type:     "openai",
+				Tokens:   []string{embeddingAPIKey},
+				Protocol: "openai/v1",
+				Raw:      raw,
+			}); err != nil {
+				logger.Error(err, "failed to create embedding provider (non-fatal)")
+			}
+			if err := i.Gateway.EnsureAIRoute(ctx, gateway.AIRouteRequest{
+				Name:       "embedding-ai-route",
+				PathPrefix: "/v1/embeddings",
+				Provider:   embeddingProvider,
+			}); err != nil {
+				logger.Error(err, "failed to create embedding AI route (non-fatal)")
+			}
 		}
 	}
 

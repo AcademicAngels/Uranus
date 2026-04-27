@@ -90,9 +90,11 @@ The embedding model for memory search is configured separately:
 
 ```bash
 export HICLAW_EMBEDDING_MODEL=bge-m3
+export HICLAW_EMBEDDING_BASE_URL=http://host.docker.internal:1234/v1
+export HICLAW_EMBEDDING_API_KEY=local-key
 ```
 
-This controls the ReMe memory search, not the main LLM.
+This controls the ReMe memory search, not the main LLM. Leave `HICLAW_EMBEDDING_BASE_URL` empty only when the main LLM provider also supports `/v1/embeddings`.
 
 ## Windows / WSL Considerations
 

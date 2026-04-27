@@ -145,6 +145,10 @@ func TestManagerAgentEnvForwardsAbstractInfraEnv(t *testing.T) {
 	t.Setenv("HICLAW_STORAGE_PREFIX", "teams/demo")
 	t.Setenv("HICLAW_AI_GATEWAY_URL", "http://aigw.example.com:8080")
 	t.Setenv("HICLAW_MATRIX_URL", "http://matrix.example.com:8080")
+	t.Setenv("HICLAW_EMBEDDING_MODEL", "bge-m3")
+	t.Setenv("HICLAW_EMBEDDING_BASE_URL", "http://host.docker.internal:1234/v1")
+	t.Setenv("HICLAW_EMBEDDING_API_KEY", "local-key")
+	t.Setenv("HICLAW_VAULT_PATH", "shared/vault")
 
 	cfg := LoadConfig()
 	env := cfg.ManagerAgentEnv()
@@ -158,6 +162,10 @@ func TestManagerAgentEnvForwardsAbstractInfraEnv(t *testing.T) {
 		"HICLAW_STORAGE_PREFIX":       "teams/demo",
 		"HICLAW_FS_ACCESS_KEY":        "root",
 		"HICLAW_FS_SECRET_KEY":        "secret",
+		"HICLAW_EMBEDDING_MODEL":      "bge-m3",
+		"HICLAW_EMBEDDING_BASE_URL":   "http://host.docker.internal:1234/v1",
+		"HICLAW_EMBEDDING_API_KEY":    "local-key",
+		"HICLAW_VAULT_PATH":           "shared/vault",
 	} {
 		if got := env[key]; got != want {
 			t.Fatalf("%s = %q, want %q", key, got, want)

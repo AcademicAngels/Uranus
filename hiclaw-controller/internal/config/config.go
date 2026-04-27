@@ -127,6 +127,8 @@ type Config struct {
 	// AI model
 	DefaultModel       string
 	EmbeddingModel     string
+	EmbeddingBaseURL   string
+	EmbeddingAPIKey    string
 	VaultPath          string
 	Runtime            string
 	ModelContextWindow int
@@ -292,6 +294,8 @@ func LoadConfig() *Config {
 
 		DefaultModel:       envOrDefault("HICLAW_DEFAULT_MODEL", "qwen3.5-plus"),
 		EmbeddingModel:     os.Getenv("HICLAW_EMBEDDING_MODEL"),
+		EmbeddingBaseURL:   os.Getenv("HICLAW_EMBEDDING_BASE_URL"),
+		EmbeddingAPIKey:    os.Getenv("HICLAW_EMBEDDING_API_KEY"),
 		VaultPath:          os.Getenv("HICLAW_VAULT_PATH"),
 		Runtime:            envOrDefault("HICLAW_RUNTIME", "docker"),
 		ModelContextWindow: envOrDefaultInt("HICLAW_MODEL_CONTEXT_WINDOW", 0),
@@ -600,6 +604,9 @@ func (c *Config) ManagerAgentEnv() map[string]string {
 	setIfNonEmpty("HICLAW_MATRIX_DOMAIN", c.MatrixDomain)
 	setIfNonEmpty("HICLAW_DEFAULT_MODEL", c.DefaultModel)
 	setIfNonEmpty("HICLAW_EMBEDDING_MODEL", c.EmbeddingModel)
+	setIfNonEmpty("HICLAW_EMBEDDING_BASE_URL", c.EmbeddingBaseURL)
+	setIfNonEmpty("HICLAW_EMBEDDING_API_KEY", c.EmbeddingAPIKey)
+	setIfNonEmpty("HICLAW_VAULT_PATH", c.VaultPath)
 	setIfNonEmpty("HICLAW_LLM_PROVIDER", c.LLMProvider)
 	setIfNonEmpty("HICLAW_LLM_API_KEY", c.LLMAPIKey)
 	setIfNonEmpty("HICLAW_ELEMENT_WEB_URL", c.ElementWebURL)
